@@ -4,6 +4,7 @@ from collections import defaultdict
 from collections.abc import Iterator
 from itertools import accumulate, chain, compress, groupby, islice
 from operator import itemgetter
+
 from .expr import (
     AggExpr,
     AggFunc,

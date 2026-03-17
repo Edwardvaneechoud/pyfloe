@@ -12,13 +12,13 @@ import pytest
 
 from pyfloe import (
     Floe,
+    Stream,
     col,
+    from_iter,
     lit,
     read_csv,
     row_number,
     when,
-    from_iter,
-    Stream,
 )
 
 N_ROWS = 100_000
