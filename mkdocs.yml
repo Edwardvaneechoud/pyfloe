@@ -1,0 +1,68 @@
+site_name: pyfloe
+site_url: https://edwardvaneechoud.github.io/pyfloe/
+site_description: Zero-dependency, lazy dataframes for Python.
+repo_url: https://github.com/Edwardvaneechoud/pyfloe
+repo_name: Edwardvaneechoud/pyfloe
+
+theme:
+  name: material
+  features:
+    - navigation.tabs
+    - navigation.sections
+    - navigation.expand
+    - search.suggest
+    - search.highlight
+    - content.tabs.link
+    - content.code.copy
+  palette:
+    - scheme: default
+      primary: indigo
+      accent: indigo
+      toggle:
+        icon: material/brightness-7
+        name: Switch to dark mode
+    - scheme: slate
+      primary: indigo
+      accent: indigo
+      toggle:
+        icon: material/brightness-4
+        name: Switch to light mode
+
+nav:
+  - Getting Started: index.md
+  - Expressions: expressions.md
+  - Operations: operations.md
+  - Datetime: datetime.md
+  - File I/O: io.md
+  - Streaming: streaming.md
+  - Type Safety: type-safety.md
+  - API Reference: api-reference.md
+  - Internals: internals.md
+
+markdown_extensions:
+  - pymdownx.highlight:
+      anchor_linenums: true
+  - pymdownx.superfences
+  - pymdownx.tabbed:
+      alternate_style: true
+  - admonition
+  - pymdownx.details
+  - tables
+  - toc:
+      permalink: true
+
+plugins:
+  - search
+  - mkdocstrings:
+      handlers:
+        python:
+          paths: [src]
+          options:
+            show_source: false
+            show_root_heading: true
+            show_root_full_path: false
+            members_order: source
+            heading_level: 3
+            show_symbol_type_heading: true
+            show_symbol_type_toc: true
+            docstring_style: google
