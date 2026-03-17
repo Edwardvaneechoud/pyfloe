@@ -1,4 +1,4 @@
-name: Deploy docs
+Bname: Deploy docs
 
 on:
   push:
