@@ -5,7 +5,7 @@ description = "Zero-dependency lazy dataframe. Lo-fi data processing for Python.
 readme = "README.md"
 requires-python = ">=3.10"
 license = "MIT"
-authors = [{ name = "You" }]
+authors = [{ name = "Edward van Eechoud" }]
 keywords = ["dataframe", "lazy", "streaming", "etl", "csv"]
 classifiers = [
     "Development Status :: 4 - Beta",
@@ -22,8 +22,8 @@ classifiers = [
 ]
 
 [project.urls]
-Repository = "https://github.com/yourname/lite-flow"
-Documentation = "https://github.com/yourname/lite-flow#readme"
+Repository = "https://github.com/Edwardvaneechoud/lite-flow"
+Documentation = "https://github.com/Edwardvaneechoud/lite-flow#readme"
 
 [build-system]
 requires = ["hatchling"]
