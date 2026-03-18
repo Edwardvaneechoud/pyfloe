@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import csv
 import json
+import os
 from collections.abc import Callable, Iterable, Iterator
 from itertools import chain, islice
 from typing import TYPE_CHECKING, Any
@@ -63,11 +64,11 @@ def from_iter(
     Examples:
         From a generator:
 
-        >>> from pyfloe import from_iter, col
+        >>> import pyfloe as pf
         >>> def gen():
         ...     for i in range(5):
         ...         yield {"id": i, "value": i * 1.5}
-        >>> from_iter(gen()).to_pylist()
+        >>> pf.from_iter(gen()).to_pylist()
         [{'id': 0, 'value': 0.0}, {'id': 1, 'value': 1.5}, {'id': 2, 'value': 3.0}, {'id': 3, 'value': 4.5}, {'id': 4, 'value': 6.0}]
 
         From a replayable callable factory:
@@ -230,11 +231,11 @@ def from_chunks(
     Examples:
         From a replayable chunk factory:
 
-        >>> from pyfloe import from_chunks
+        >>> import pyfloe as pf
         >>> def make_chunks():
         ...     yield [{"n": 1}, {"n": 2}]
         ...     yield [{"n": 3}]
-        >>> lf = from_chunks(make_chunks)
+        >>> lf = pf.from_chunks(make_chunks)
         >>> lf.to_pylist()
         [{'n': 1}, {'n': 2}, {'n': 3}]
 
@@ -350,14 +351,14 @@ class Stream:
     ``.to_pylist()``, or ``.collect()``.
 
     Examples:
-        >>> from pyfloe import Stream, col
+        >>> import pyfloe as pf
         >>> def gen():
         ...     for i in range(100):
         ...         yield {"id": i, "value": i * 2.0}
         >>> result = (
-        ...     Stream.from_iter(gen())
-        ...     .filter(col("value") > 190)
-        ...     .with_column("label", col("id").cast(str))
+        ...     pf.Stream.from_iter(gen())
+        ...     .filter(pf.col("value") > 190)
+        ...     .with_column("label", pf.col("id").cast(str))
         ...     .select("id", "value", "label")
         ...     .to_pylist()
         ... )
@@ -686,6 +687,7 @@ class Stream:
         Examples:
             >>> Stream.from_iter(gen()).filter(col("score") > 50).to_csv("/tmp/out.csv")  # doctest: +SKIP
         """
+        path = os.path.expanduser(path)
         _, out_cols = self._build_processor()
         with open(path, "w", encoding=encoding, newline="") as f:
             writer = csv.writer(f, delimiter=delimiter)
@@ -704,6 +706,7 @@ class Stream:
         Examples:
             >>> Stream.from_iter(gen()).filter(col("ts") > 10).to_jsonl("/tmp/out.jsonl")  # doctest: +SKIP
         """
+        path = os.path.expanduser(path)
         _, out_cols = self._build_processor()
         with open(path, "w", encoding=encoding) as f:
             for row in self._execute():
