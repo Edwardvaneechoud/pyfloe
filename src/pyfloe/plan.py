@@ -1,9 +1,10 @@
 from __future__ import annotations
 
 from collections import defaultdict
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from itertools import accumulate, chain, compress, groupby, islice
 from operator import itemgetter
+from typing import Any
 
 from .expr import (
     AggExpr,
@@ -20,7 +21,7 @@ from .schema import ColumnSchema, LazySchema
 _BATCH_SIZE = 1024
 
 
-def _batched(iterable, n=_BATCH_SIZE):
+def _batched(iterable: Any, n: int = _BATCH_SIZE) -> Iterator[list]:
     it = iter(iterable)
     while True:
         chunk = list(islice(it, n))
@@ -29,7 +30,7 @@ def _batched(iterable, n=_BATCH_SIZE):
         yield chunk
 
 
-def _make_key_fn(indices):
+def _make_key_fn(indices: list[int]) -> Callable[[tuple], tuple]:
     if len(indices) == 1:
         idx = indices[0]
         return lambda row: (row[idx],)
@@ -139,7 +140,7 @@ class ScanNode(PlanNode):
     def fast_count(self) -> int | None:
         return len(self._data)
 
-    def _explain_self(self):
+    def _explain_self(self) -> str:
         n = len(self._data)
         return f"Scan [{', '.join(self._columns)}] ({n} rows)"
 
@@ -164,7 +165,7 @@ class IteratorSourceNode(PlanNode):
         self,
         columns: list[str],
         lazy_schema: LazySchema,
-        iterator_factory,
+        iterator_factory: Callable[[], Iterator[tuple]],
         source_label: str = "Iterator",
     ):
         self._columns = columns
@@ -178,7 +179,7 @@ class IteratorSourceNode(PlanNode):
     def execute_batched(self) -> Iterator[list[tuple]]:
         return _batched(self._factory())
 
-    def _explain_self(self):
+    def _explain_self(self) -> str:
         return f"{self._source_label} [{', '.join(self._columns)}]"
 
 
@@ -236,16 +237,24 @@ class ProjectNode(PlanNode):
                     yield list(map(getter, chunk))
         elif self._exprs:
             compiled = [e.compile(col_map) for e in self._exprs]
+            saw_rows = False
             for chunk in self.child.execute_batched():
+                if chunk:
+                    saw_rows = True
                 yield [tuple(fn(row) for fn in compiled) for row in chunk]
+            if not saw_rows and all(not e.required_columns() for e in self._exprs):
+                dummy = (None,) * len(parent_cols)
+                yield [tuple(fn(dummy) for fn in compiled)]
 
-    def children(self):
+    def children(self) -> list[PlanNode]:
         return [self.child]
 
-    def _explain_self(self):
+    def _explain_self(self) -> str:
         if self._columns:
             return f"Project [{', '.join(self._columns)}]"
-        return f"Project [{', '.join(repr(e) for e in self._exprs)}]"
+        if self._exprs is not None:
+            return f"Project [{', '.join(repr(e) for e in self._exprs)}]"
+        return "Project []"
 
 
 class FilterNode(PlanNode):
@@ -276,10 +285,10 @@ class FilterNode(PlanNode):
             if filtered:
                 yield filtered
 
-    def children(self):
+    def children(self) -> list[PlanNode]:
         return [self.child]
 
-    def _explain_self(self):
+    def _explain_self(self) -> str:
         return f"Filter [{self.predicate}]"
 
 
@@ -362,10 +371,10 @@ class JoinNode(PlanNode):
         if buf:
             yield buf
 
-    def children(self):
+    def children(self) -> list[PlanNode]:
         return [self.left, self.right]
 
-    def _explain_self(self):
+    def _explain_self(self) -> str:
         return f"Join [{self.how}] {self.left_on} = {self.right_on}"
 
 
@@ -433,10 +442,10 @@ class AggNode(PlanNode):
         if buf:
             yield buf
 
-    def children(self):
+    def children(self) -> list[PlanNode]:
         return [self.child]
 
-    def _explain_self(self):
+    def _explain_self(self) -> str:
         aggs = ", ".join(repr(a) for a in self.agg_exprs)
         return f"Aggregate by=[{', '.join(self.group_by)}] aggs=[{aggs}]"
 
@@ -463,7 +472,7 @@ def _init_acc(agg: AggExpr) -> dict:
         return {"vals": []}
 
 
-def _update_acc(acc: dict, agg: AggExpr, val) -> None:
+def _update_acc(acc: dict, agg: AggExpr, val: Any) -> None:
     kind = agg.agg_name
     if kind == "sum":
         if val is not None:
@@ -496,7 +505,7 @@ def _update_acc(acc: dict, agg: AggExpr, val) -> None:
         acc["vals"].append(val)
 
 
-def _finalize_acc(acc: dict, agg: AggExpr):
+def _finalize_acc(acc: dict, agg: AggExpr) -> Any:
     kind = agg.agg_name
     if kind == "sum":
         return acc["s"]
@@ -531,7 +540,7 @@ def _init_pivot_acc(agg_name: AggFunc) -> dict:
         return {"v": None, "set": False}
 
 
-def _update_pivot_acc(acc: dict, agg_name: AggFunc, val) -> None:
+def _update_pivot_acc(acc: dict, agg_name: AggFunc, val: Any) -> None:
     if agg_name == "sum":
         if val is not None:
             acc["s"] += val
@@ -558,7 +567,7 @@ def _update_pivot_acc(acc: dict, agg_name: AggFunc, val) -> None:
         acc["v"] = val
 
 
-def _finalize_pivot_acc(acc: dict, agg_name: AggFunc):
+def _finalize_pivot_acc(acc: dict, agg_name: AggFunc) -> Any:
     if agg_name == "sum":
         return acc["s"]
     elif agg_name == "count":
@@ -570,7 +579,7 @@ def _finalize_pivot_acc(acc: dict, agg_name: AggFunc):
     return acc.get("v")
 
 
-def _make_updater(agg: AggExpr):
+def _make_updater(agg: AggExpr) -> Callable[[dict, Any], None]:
     kind = agg.agg_name
     if kind == "sum":
 
@@ -679,10 +688,10 @@ class SortedAggNode(PlanNode):
         if buf:
             yield buf
 
-    def children(self):
+    def children(self) -> list[PlanNode]:
         return [self.child]
 
-    def _explain_self(self):
+    def _explain_self(self) -> str:
         aggs = ", ".join(repr(a) for a in self.agg_exprs)
         return f"SortedAggregate by=[{', '.join(self.group_by)}] aggs=[{aggs}]"
 
@@ -823,10 +832,10 @@ class SortedMergeJoinNode(PlanNode):
             for r_row in right_iter:
                 yield null_left + r_row
 
-    def children(self):
+    def children(self) -> list[PlanNode]:
         return [self.left, self.right]
 
-    def _explain_self(self):
+    def _explain_self(self) -> str:
         return f"SortedMergeJoin [{self.how}] {self.left_on} = {self.right_on}"
 
 
@@ -863,10 +872,10 @@ class SortNode(PlanNode):
         for i in range(0, len(data), _BATCH_SIZE):
             yield data[i : i + _BATCH_SIZE]
 
-    def children(self):
+    def children(self) -> list[PlanNode]:
         return [self.child]
 
-    def _explain_self(self):
+    def _explain_self(self) -> str:
         parts = [f"{c} {'↑' if a else '↓'}" for c, a in zip(self.by, self.ascending)]
         return f"Sort [{', '.join(parts)}]"
 
@@ -909,10 +918,10 @@ class ExplodeNode(PlanNode):
         if buf:
             yield buf
 
-    def children(self):
+    def children(self) -> list[PlanNode]:
         return [self.child]
 
-    def _explain_self(self):
+    def _explain_self(self) -> str:
         return f"Explode [{self.column}]"
 
 
@@ -987,10 +996,10 @@ class UnpivotNode(PlanNode):
         if buf:
             yield buf
 
-    def children(self):
+    def children(self) -> list[PlanNode]:
         return [self.child]
 
-    def _explain_self(self):
+    def _explain_self(self) -> str:
         return (
             f"Unpivot id=[{', '.join(self.id_columns)}] "
             f"values=[{', '.join(self.value_columns)}] "
@@ -1120,10 +1129,10 @@ class PivotNode(PlanNode):
         if buf:
             yield buf
 
-    def children(self):
+    def children(self) -> list[PlanNode]:
         return [self.child]
 
-    def _explain_self(self):
+    def _explain_self(self) -> str:
         cols_str = str(self.columns) if self.columns else "auto"
         return (
             f"Pivot index=[{', '.join(self.index)}] on={self.on} "
@@ -1149,7 +1158,7 @@ class ApplyNode(PlanNode):
     def __init__(
         self,
         child: PlanNode,
-        func,
+        func: Callable[..., Any],
         columns: list[str] | None = None,
         output_dtype: type | None = None,
     ):
@@ -1181,10 +1190,10 @@ class ApplyNode(PlanNode):
             for chunk in self.child.execute_batched():
                 yield [tuple(map(fn, row)) for row in chunk]
 
-    def children(self):
+    def children(self) -> list[PlanNode]:
         return [self.child]
 
-    def _explain_self(self):
+    def _explain_self(self) -> str:
         if self._columns:
             return f"Apply [{', '.join(self._columns)}]"
         return "Apply [all]"
@@ -1216,15 +1225,21 @@ class WithColumnNode(PlanNode):
         return parent.with_column(self._name, dtype)
 
     def execute_batched(self) -> Iterator[list[tuple]]:
-        col_map = {n: i for i, n in enumerate(self.child.schema().column_names)}
+        parent_cols = self.child.schema().column_names
+        col_map = {n: i for i, n in enumerate(parent_cols)}
         fn = self._expr.compile(col_map)
-        for chunk in self.child.execute_batched():
-            yield [row + (fn(row),) for row in chunk]
+        if self._name in col_map:
+            idx = col_map[self._name]
+            for chunk in self.child.execute_batched():
+                yield [row[:idx] + (fn(row),) + row[idx + 1 :] for row in chunk]
+        else:
+            for chunk in self.child.execute_batched():
+                yield [row + (fn(row),) for row in chunk]
 
-    def children(self):
+    def children(self) -> list[PlanNode]:
         return [self.child]
 
-    def _explain_self(self):
+    def _explain_self(self) -> str:
         return f"WithColumn [{self._name} = {self._expr}]"
 
 
@@ -1254,10 +1269,10 @@ class RenameNode(PlanNode):
     def fast_count(self) -> int | None:
         return self.child.fast_count()
 
-    def children(self):
+    def children(self) -> list[PlanNode]:
         return [self.child]
 
-    def _explain_self(self):
+    def _explain_self(self) -> str:
         pairs = [f"{k}→{v}" for k, v in self.mapping.items()]
         return f"Rename [{', '.join(pairs)}]"
 
@@ -1283,10 +1298,10 @@ class UnionNode(PlanNode):
     def execute_batched(self) -> Iterator[list[tuple]]:
         return chain.from_iterable(c.execute_batched() for c in self._children)
 
-    def children(self):
+    def children(self) -> list[PlanNode]:
         return self._children
 
-    def _explain_self(self):
+    def _explain_self(self) -> str:
         return f"Union [{len(self._children)} inputs]"
 
 
@@ -1347,18 +1362,18 @@ class WindowNode(PlanNode):
             def o_sort_key(x):
                 return x[1][_oi]
         else:
-            o_sort_key = None
+            o_sort_key = None  # type: ignore[assignment]
 
         partitions: dict[tuple, list] = defaultdict(list)
         for i, row in enumerate(data):
             key = p_key(row) if p_key else ()
             partitions[key].append((i, row))
 
-        window_values = [None] * len(data)
+        window_values: list[Any] = [None] * len(data)
         inner = wexpr.expr
 
         for _key, part in partitions.items():
-            if o_sort_key:
+            if o_sort_key is not None:
                 part.sort(key=o_sort_key)
 
             if isinstance(inner, AggExpr):
@@ -1442,10 +1457,10 @@ class WindowNode(PlanNode):
             end = min(i + _BATCH_SIZE, n_data)
             yield [data[j] + (window_values[j],) for j in range(i, end)]
 
-    def children(self):
+    def children(self) -> list[PlanNode]:
         return [self.child]
 
-    def _explain_self(self):
+    def _explain_self(self) -> str:
         return f"Window [{self.window_expr}] → {self._output_name}"
 
 

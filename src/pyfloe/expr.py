@@ -1,16 +1,17 @@
 from __future__ import annotations
 
 import operator as _op
+from collections.abc import Callable
 from typing import TYPE_CHECKING, Any, Literal
 
 if TYPE_CHECKING:
     from .schema import LazySchema
 
-AggFunc = Literal['sum', 'mean', 'min', 'max', 'count', 'first', 'last', 'n_unique']
-JoinHow = Literal['inner', 'left', 'full']
-RankKind = Literal['rank', 'dense_rank', 'row_number']
-CumKind = Literal['cumsum', 'cummax', 'cummin']
-DateTruncUnit = Literal['year', 'month', 'day', 'hour', 'minute']
+AggFunc = Literal["sum", "mean", "min", "max", "count", "first", "last", "n_unique"]
+JoinHow = Literal["inner", "left", "full"]
+RankKind = Literal["rank", "dense_rank", "row_number"]
+CumKind = Literal["cumsum", "cummax", "cummin"]
+DateTruncUnit = Literal["year", "month", "day", "hour", "minute"]
 
 
 class Agg:
@@ -19,14 +20,15 @@ class Agg:
     Examples:
         >>> lf.pivot(index="name", on="subject", values="score", agg=Agg.sum)
     """
-    sum: AggFunc = 'sum'
-    mean: AggFunc = 'mean'
-    min: AggFunc = 'min'
-    max: AggFunc = 'max'
-    count: AggFunc = 'count'
-    first: AggFunc = 'first'
-    last: AggFunc = 'last'
-    n_unique: AggFunc = 'n_unique'
+
+    sum: AggFunc = "sum"
+    mean: AggFunc = "mean"
+    min: AggFunc = "min"
+    max: AggFunc = "max"
+    count: AggFunc = "count"
+    first: AggFunc = "first"
+    last: AggFunc = "last"
+    n_unique: AggFunc = "n_unique"
 
 
 class Join:
@@ -35,9 +37,10 @@ class Join:
     Examples:
         >>> orders.join(customers, on="cust", how=Join.left)
     """
-    inner: JoinHow = 'inner'
-    left: JoinHow = 'left'
-    full: JoinHow = 'full'
+
+    inner: JoinHow = "inner"
+    left: JoinHow = "left"
+    full: JoinHow = "full"
 
 
 class DateTrunc:
@@ -46,20 +49,21 @@ class DateTrunc:
     Examples:
         >>> col("ts").dt.truncate(DateTrunc.month)
     """
-    year: DateTruncUnit = 'year'
-    month: DateTruncUnit = 'month'
-    day: DateTruncUnit = 'day'
-    hour: DateTruncUnit = 'hour'
-    minute: DateTruncUnit = 'minute'
+
+    year: DateTruncUnit = "year"
+    month: DateTruncUnit = "month"
+    day: DateTruncUnit = "day"
+    hour: DateTruncUnit = "hour"
+    minute: DateTruncUnit = "minute"
 
 
-def _ensure_expr(val) -> Expr:
+def _ensure_expr(val: Any) -> Expr:
     if isinstance(val, Expr):
         return val
     return Lit(val)
 
 
-def _standardize_str_list(val) -> list[str]:
+def _standardize_str_list(val: str | list[str] | None) -> list[str]:
     if val is None:
         return []
     if isinstance(val, str):
@@ -92,10 +96,10 @@ class Expr:
         ((col("age") > 18) & (col("active") == True))
     """
 
-    def eval(self, row: tuple, col_map: dict) -> Any:
+    def eval(self, row: tuple, col_map: dict[str, int]) -> Any:
         raise NotImplementedError
 
-    def compile(self, col_map: dict):
+    def compile(self, col_map: dict[str, int]) -> Callable[[tuple], Any]:
         return lambda row: self.eval(row, col_map)
 
     def required_columns(self) -> set[str]:
@@ -107,36 +111,73 @@ class Expr:
     def output_name(self) -> str | None:
         return None
 
-    def __bool__(self):
+    def __bool__(self) -> bool:
         raise TypeError(
-            'Cannot use an Expr as a Python bool. '
-            'Use & / | for logical ops, and .collect() to evaluate.'
+            "Cannot use an Expr as a Python bool. "
+            "Use & / | for logical ops, and .collect() to evaluate."
         )
 
-    def __gt__(self, other) -> BinaryExpr:  return BinaryExpr(self, _ensure_expr(other), _op.gt, '>')
-    def __ge__(self, other) -> BinaryExpr:  return BinaryExpr(self, _ensure_expr(other), _op.ge, '>=')
-    def __lt__(self, other) -> BinaryExpr:  return BinaryExpr(self, _ensure_expr(other), _op.lt, '<')
-    def __le__(self, other) -> BinaryExpr:  return BinaryExpr(self, _ensure_expr(other), _op.le, '<=')
-    def __eq__(self, other) -> BinaryExpr:  return BinaryExpr(self, _ensure_expr(other), _op.eq, '==')
-    def __ne__(self, other) -> BinaryExpr:  return BinaryExpr(self, _ensure_expr(other), _op.ne, '!=')
+    def __gt__(self, other: Any) -> BinaryExpr:
+        return BinaryExpr(self, _ensure_expr(other), _op.gt, ">")
 
-    def __and__(self, other): return BinaryExpr(self, _ensure_expr(other), lambda a, b: a and b, '&')
-    def __or__(self, other):  return BinaryExpr(self, _ensure_expr(other), lambda a, b: a or b, '|')
-    def __invert__(self):     return UnaryExpr(self, _op.not_, '~')
+    def __ge__(self, other: Any) -> BinaryExpr:
+        return BinaryExpr(self, _ensure_expr(other), _op.ge, ">=")
 
-    def __add__(self, other):      return BinaryExpr(self, _ensure_expr(other), _op.add, '+')
-    def __radd__(self, other):     return BinaryExpr(_ensure_expr(other), self, _op.add, '+')
-    def __sub__(self, other):      return BinaryExpr(self, _ensure_expr(other), _op.sub, '-')
-    def __rsub__(self, other):     return BinaryExpr(_ensure_expr(other), self, _op.sub, '-')
-    def __mul__(self, other):      return BinaryExpr(self, _ensure_expr(other), _op.mul, '*')
-    def __rmul__(self, other):     return BinaryExpr(_ensure_expr(other), self, _op.mul, '*')
-    def __truediv__(self, other):  return BinaryExpr(self, _ensure_expr(other), _op.truediv, '/')
-    def __rtruediv__(self, other): return BinaryExpr(_ensure_expr(other), self, _op.truediv, '/')
-    def __floordiv__(self, other): return BinaryExpr(self, _ensure_expr(other), _op.floordiv, '//')
-    def __mod__(self, other):      return BinaryExpr(self, _ensure_expr(other), _op.mod, '%')
-    def __neg__(self):             return UnaryExpr(self, _op.neg, '-')
+    def __lt__(self, other: Any) -> BinaryExpr:
+        return BinaryExpr(self, _ensure_expr(other), _op.lt, "<")
 
-    def alias(self, name: str) -> AliasExpr:
+    def __le__(self, other: Any) -> BinaryExpr:
+        return BinaryExpr(self, _ensure_expr(other), _op.le, "<=")
+
+    def __eq__(self, other: Any) -> BinaryExpr:  # type: ignore[override]
+        return BinaryExpr(self, _ensure_expr(other), _op.eq, "==")
+
+    def __ne__(self, other: Any) -> BinaryExpr:  # type: ignore[override]
+        return BinaryExpr(self, _ensure_expr(other), _op.ne, "!=")
+
+    def __and__(self, other: Any) -> BinaryExpr:
+        return BinaryExpr(self, _ensure_expr(other), lambda a, b: a and b, "&")
+
+    def __or__(self, other: Any) -> BinaryExpr:
+        return BinaryExpr(self, _ensure_expr(other), lambda a, b: a or b, "|")
+
+    def __invert__(self) -> UnaryExpr:
+        return UnaryExpr(self, _op.not_, "~")
+
+    def __add__(self, other: Any) -> BinaryExpr:
+        return BinaryExpr(self, _ensure_expr(other), _op.add, "+")
+
+    def __radd__(self, other: Any) -> BinaryExpr:
+        return BinaryExpr(_ensure_expr(other), self, _op.add, "+")
+
+    def __sub__(self, other: Any) -> BinaryExpr:
+        return BinaryExpr(self, _ensure_expr(other), _op.sub, "-")
+
+    def __rsub__(self, other: Any) -> BinaryExpr:
+        return BinaryExpr(_ensure_expr(other), self, _op.sub, "-")
+
+    def __mul__(self, other: Any) -> BinaryExpr:
+        return BinaryExpr(self, _ensure_expr(other), _op.mul, "*")
+
+    def __rmul__(self, other: Any) -> BinaryExpr:
+        return BinaryExpr(_ensure_expr(other), self, _op.mul, "*")
+
+    def __truediv__(self, other: Any) -> BinaryExpr:
+        return BinaryExpr(self, _ensure_expr(other), _op.truediv, "/")
+
+    def __rtruediv__(self, other: Any) -> BinaryExpr:
+        return BinaryExpr(_ensure_expr(other), self, _op.truediv, "/")
+
+    def __floordiv__(self, other: Any) -> BinaryExpr:
+        return BinaryExpr(self, _ensure_expr(other), _op.floordiv, "//")
+
+    def __mod__(self, other: Any) -> BinaryExpr:
+        return BinaryExpr(self, _ensure_expr(other), _op.mod, "%")
+
+    def __neg__(self) -> UnaryExpr:
+        return UnaryExpr(self, _op.neg, "-")
+
+    def alias(self, name: str) -> Expr:
         """Rename the output column of this expression.
 
         Args:
@@ -171,7 +212,7 @@ class Expr:
             >>> lf.filter(col("x").is_null()).to_pylist()  # doctest: +SKIP
             [{'x': None}]
         """
-        return UnaryExpr(self, lambda x: x is None, 'is_null')
+        return UnaryExpr(self, lambda x: x is None, "is_null")
 
     def is_not_null(self) -> UnaryExpr:
         """Test whether the value is not None.
@@ -184,9 +225,9 @@ class Expr:
             >>> lf.filter(col("x").is_not_null()).to_pylist()  # doctest: +SKIP
             [{'x': 1}]
         """
-        return UnaryExpr(self, lambda x: x is not None, 'is_not_null')
+        return UnaryExpr(self, lambda x: x is not None, "is_not_null")
 
-    def is_in(self, values) -> UnaryExpr:
+    def is_in(self, values: Any) -> UnaryExpr:
         """Test whether the value is in a set of values.
 
         Args:
@@ -201,7 +242,7 @@ class Expr:
             [{'r': 'EU'}, {'r': 'US'}]
         """
         s = frozenset(values)
-        return UnaryExpr(self, lambda x: x in s, f'is_in({list(values)!r})')
+        return UnaryExpr(self, lambda x: x in s, f"is_in({list(values)!r})")
 
     @property
     def str(self) -> StringAccessor:
@@ -237,7 +278,7 @@ class Expr:
         Examples:
             >>> col("amount").sum().alias("total")  # doctest: +SKIP
         """
-        return AggExpr(self, 'sum', sum)
+        return AggExpr(self, "sum", sum)
 
     def mean(self) -> AggExpr:
         """Mean of non-null values. Use inside ``group_by().agg()`` or with ``.over()``.
@@ -245,7 +286,7 @@ class Expr:
         Examples:
             >>> col("score").mean().alias("avg_score")  # doctest: +SKIP
         """
-        return AggExpr(self, 'mean', lambda v: sum(v)/len(v) if v else 0)
+        return AggExpr(self, "mean", lambda v: sum(v) / len(v) if v else 0)
 
     def min(self) -> AggExpr:
         """Minimum of non-null values. Use inside ``group_by().agg()`` or with ``.over()``.
@@ -253,7 +294,7 @@ class Expr:
         Examples:
             >>> col("price").min().alias("lowest")  # doctest: +SKIP
         """
-        return AggExpr(self, 'min', min)
+        return AggExpr(self, "min", min)
 
     def max(self) -> AggExpr:
         """Maximum of non-null values. Use inside ``group_by().agg()`` or with ``.over()``.
@@ -261,7 +302,7 @@ class Expr:
         Examples:
             >>> col("price").max().alias("highest")  # doctest: +SKIP
         """
-        return AggExpr(self, 'max', max)
+        return AggExpr(self, "max", max)
 
     def count(self) -> AggExpr:
         """Count of non-null values. Use inside ``group_by().agg()`` or with ``.over()``.
@@ -269,7 +310,7 @@ class Expr:
         Examples:
             >>> col("order_id").count().alias("n_orders")  # doctest: +SKIP
         """
-        return AggExpr(self, 'count', len)
+        return AggExpr(self, "count", len)
 
     def first(self) -> AggExpr:
         """First non-null value in the group. Use inside ``group_by().agg()``.
@@ -277,7 +318,7 @@ class Expr:
         Examples:
             >>> col("name").first().alias("first_name")  # doctest: +SKIP
         """
-        return AggExpr(self, 'first', lambda v: v[0] if v else None)
+        return AggExpr(self, "first", lambda v: v[0] if v else None)
 
     def last(self) -> AggExpr:
         """Last non-null value in the group. Use inside ``group_by().agg()``.
@@ -285,7 +326,7 @@ class Expr:
         Examples:
             >>> col("name").last().alias("last_name")  # doctest: +SKIP
         """
-        return AggExpr(self, 'last', lambda v: v[-1] if v else None)
+        return AggExpr(self, "last", lambda v: v[-1] if v else None)
 
     def n_unique(self) -> AggExpr:
         """Count of distinct non-null values. Use inside ``group_by().agg()``.
@@ -293,7 +334,7 @@ class Expr:
         Examples:
             >>> col("product").n_unique().alias("unique_products")  # doctest: +SKIP
         """
-        return AggExpr(self, 'n_unique', lambda v: len(set(v)))
+        return AggExpr(self, "n_unique", lambda v: len(set(v)))
 
     def cumsum(self) -> CumExpr:
         """Cumulative sum. Use with ``.over()`` to create a window expression.
@@ -301,7 +342,7 @@ class Expr:
         Examples:
             >>> col("amount").cumsum().over(order_by="date")  # doctest: +SKIP
         """
-        return CumExpr(self, 'cumsum')
+        return CumExpr(self, "cumsum")
 
     def cummax(self) -> CumExpr:
         """Cumulative maximum. Use with ``.over()`` to create a window expression.
@@ -309,7 +350,7 @@ class Expr:
         Examples:
             >>> col("score").cummax().over(order_by="round")  # doctest: +SKIP
         """
-        return CumExpr(self, 'cummax')
+        return CumExpr(self, "cummax")
 
     def cummin(self) -> CumExpr:
         """Cumulative minimum. Use with ``.over()`` to create a window expression.
@@ -317,9 +358,9 @@ class Expr:
         Examples:
             >>> col("score").cummin().over(order_by="round")  # doctest: +SKIP
         """
-        return CumExpr(self, 'cummin')
+        return CumExpr(self, "cummin")
 
-    def lag(self, n: int = 1, default=None) -> OffsetExpr:
+    def lag(self, n: int = 1, default: Any = None) -> OffsetExpr:
         """Access the value from *n* rows before in the window.
 
         Must be used with ``.over()`` to specify ordering.
@@ -333,7 +374,7 @@ class Expr:
         """
         return OffsetExpr(self, -n, default)
 
-    def lead(self, n: int = 1, default=None) -> OffsetExpr:
+    def lead(self, n: int = 1, default: Any = None) -> OffsetExpr:
         """Access the value from *n* rows ahead in the window.
 
         Must be used with ``.over()`` to specify ordering.
@@ -347,7 +388,7 @@ class Expr:
         """
         return OffsetExpr(self, n, default)
 
-    def __hash__(self):
+    def __hash__(self) -> int:
         return id(self)
 
 
@@ -360,30 +401,30 @@ class Col(Expr):
         name: The column name this expression refers to.
     """
 
-    __slots__ = ('name',)
+    __slots__ = ("name",)
 
-    def __init__(self, name: str):
+    def __init__(self, name: str) -> None:
         self.name = name
 
-    def eval(self, row, col_map):
+    def eval(self, row: tuple, col_map: dict[str, int]) -> Any:
         return row[col_map[self.name]]
 
-    def compile(self, col_map):
+    def compile(self, col_map: dict[str, int]) -> Callable[[tuple], Any]:
         idx = col_map[self.name]
         return lambda row: row[idx]
 
-    def required_columns(self):
+    def required_columns(self) -> set[str]:
         return {self.name}
 
-    def output_dtype(self, schema):
+    def output_dtype(self, schema: LazySchema) -> type:
         if self.name in schema:
             return schema[self.name].dtype
         return str
 
-    def output_name(self):
+    def output_name(self) -> str:
         return self.name
 
-    def __repr__(self):
+    def __repr__(self) -> str:
         return f'col("{self.name}")'
 
 
@@ -396,27 +437,27 @@ class Lit(Expr):
         value: The constant value.
     """
 
-    __slots__ = ('value',)
+    __slots__ = ("value",)
 
-    def __init__(self, value):
+    def __init__(self, value: Any) -> None:
         self.value = value
 
-    def eval(self, row, col_map):
+    def eval(self, row: tuple, col_map: dict[str, int]) -> Any:
         return self.value
 
-    def compile(self, col_map):
+    def compile(self, col_map: dict[str, int]) -> Callable[[tuple], Any]:
         v = self.value
         return lambda row: v
 
-    def required_columns(self):
+    def required_columns(self) -> set[str]:
         return set()
 
-    def output_dtype(self, schema):
+    def output_dtype(self, schema: LazySchema) -> type:
         if self.value is None:
             return type(None)
         return type(self.value)
 
-    def __repr__(self):
+    def __repr__(self) -> str:
         return repr(self.value)
 
 
@@ -427,45 +468,52 @@ class BinaryExpr(Expr):
     or ``col("x") > 100``.
     """
 
-    __slots__ = ('left', 'right', 'op', 'op_str')
+    __slots__ = ("left", "right", "op", "op_str")
 
-    def __init__(self, left: Expr, right: Expr, op, op_str: str):
+    def __init__(
+        self, left: Expr, right: Expr, op: Callable[[Any, Any], Any], op_str: str
+    ) -> None:
         self.left = left
         self.right = right
         self.op = op
         self.op_str = op_str
 
-    def eval(self, row, col_map):
+    def eval(self, row: tuple, col_map: dict[str, int]) -> Any:
         lv = self.left.eval(row, col_map)
         rv = self.right.eval(row, col_map)
         if lv is None or rv is None:
             return None
         return self.op(lv, rv)
 
-    def compile(self, col_map):
+    def compile(self, col_map: dict[str, int]) -> Callable[[tuple], Any]:
         left_fn = self.left.compile(col_map)
         right_fn = self.right.compile(col_map)
         op = self.op
-        if self.op_str in ('&', '|'):
+        if self.op_str in ("&", "|"):
             return lambda row: op(left_fn(row), right_fn(row))
-        def _eval(row):
+
+        def _eval(row: tuple) -> Any:
             lv = left_fn(row)
             rv = right_fn(row)
             if lv is None or rv is None:
                 return None
             return op(lv, rv)
+
         return _eval
 
-    def required_columns(self):
+    def required_columns(self) -> set[str]:
         return self.left.required_columns() | self.right.required_columns()
 
-    def output_dtype(self, schema):
-        if self.op_str in ('>', '>=', '<', '<=', '==', '!=', '&', '|'):
+    def output_dtype(self, schema: LazySchema) -> type:
+        if self.op_str in (">", ">=", "<", "<=", "==", "!=", "&", "|"):
             return bool
         return self.left.output_dtype(schema)
 
-    def __repr__(self):
-        return f'({self.left} {self.op_str} {self.right})'
+    def output_name(self) -> str | None:
+        return self.left.output_name()
+
+    def __repr__(self) -> str:
+        return f"({self.left} {self.op_str} {self.right})"
 
 
 class UnaryExpr(Expr):
@@ -475,37 +523,41 @@ class UnaryExpr(Expr):
     or methods like ``col("x").is_null()``.
     """
 
-    __slots__ = ('operand', 'op', 'op_str')
+    __slots__ = ("operand", "op", "op_str")
 
-    def __init__(self, operand: Expr, op, op_str: str):
+    def __init__(self, operand: Expr, op: Callable[[Any], Any], op_str: str) -> None:
         self.operand = operand
         self.op = op
         self.op_str = op_str
 
-    def eval(self, row, col_map):
+    def eval(self, row: tuple, col_map: dict[str, int]) -> Any:
         return self.op(self.operand.eval(row, col_map))
 
-    def compile(self, col_map):
+    def compile(self, col_map: dict[str, int]) -> Callable[[tuple], Any]:
         inner = self.operand.compile(col_map)
         op = self.op
         return lambda row: op(inner(row))
 
-    def required_columns(self):
+    def required_columns(self) -> set[str]:
         return self.operand.required_columns()
 
-    def output_dtype(self, schema):
-        if self.op_str in ('~', 'is_null', 'is_not_null') or self.op_str.startswith('str.'):
-            if self.op_str.startswith('str.contains') or self.op_str.startswith('str.starts') or self.op_str.startswith('str.ends'):
+    def output_dtype(self, schema: LazySchema) -> type:
+        if self.op_str in ("~", "is_null", "is_not_null") or self.op_str.startswith("str."):
+            if (
+                self.op_str.startswith("str.contains")
+                or self.op_str.startswith("str.starts")
+                or self.op_str.startswith("str.ends")
+            ):
                 return bool
-            if self.op_str == 'str.len':
+            if self.op_str == "str.len":
                 return int
         return self.operand.output_dtype(schema)
 
-    def output_name(self):
+    def output_name(self) -> str | None:
         return self.operand.output_name()
 
-    def __repr__(self):
-        return f'{self.op_str}({self.operand})'
+    def __repr__(self) -> str:
+        return f"{self.op_str}({self.operand})"
 
 
 class AliasExpr(Expr):
@@ -514,28 +566,28 @@ class AliasExpr(Expr):
     Created via ``expr.alias("new_name")``.
     """
 
-    __slots__ = ('expr', '_name')
+    __slots__ = ("expr", "_name")
 
-    def __init__(self, expr: Expr, name: str):
+    def __init__(self, expr: Expr, name: str) -> None:
         self.expr = expr
         self._name = name
 
-    def eval(self, row, col_map):
+    def eval(self, row: tuple, col_map: dict[str, int]) -> Any:
         return self.expr.eval(row, col_map)
 
-    def compile(self, col_map):
+    def compile(self, col_map: dict[str, int]) -> Callable[[tuple], Any]:
         return self.expr.compile(col_map)
 
-    def required_columns(self):
+    def required_columns(self) -> set[str]:
         return self.expr.required_columns()
 
-    def output_dtype(self, schema):
+    def output_dtype(self, schema: LazySchema) -> type:
         return self.expr.output_dtype(schema)
 
-    def output_name(self):
+    def output_name(self) -> str:
         return self._name
 
-    def __repr__(self):
+    def __repr__(self) -> str:
         return f'{self.expr}.alias("{self._name}")'
 
 
@@ -545,37 +597,39 @@ class CastExpr(Expr):
     Created via ``expr.cast(int)`` or ``expr.cast(str)``.
     """
 
-    __slots__ = ('expr', '_dtype')
+    __slots__ = ("expr", "_dtype")
 
-    def __init__(self, expr: Expr, dtype: type):
+    def __init__(self, expr: Expr, dtype: type) -> None:
         self.expr = expr
         self._dtype = dtype
 
-    def eval(self, row, col_map):
+    def eval(self, row: tuple, col_map: dict[str, int]) -> Any:
         val = self.expr.eval(row, col_map)
         if val is None:
             return None
         return self._dtype(val)
 
-    def compile(self, col_map):
+    def compile(self, col_map: dict[str, int]) -> Callable[[tuple], Any]:
         inner = self.expr.compile(col_map)
         dtype = self._dtype
-        def _eval(row):
+
+        def _eval(row: tuple) -> Any:
             val = inner(row)
             return None if val is None else dtype(val)
+
         return _eval
 
-    def required_columns(self):
+    def required_columns(self) -> set[str]:
         return self.expr.required_columns()
 
-    def output_dtype(self, schema):
+    def output_dtype(self, schema: LazySchema) -> type:
         return self._dtype
 
-    def output_name(self):
+    def output_name(self) -> str | None:
         return self.expr.output_name()
 
-    def __repr__(self):
-        return f'{self.expr}.cast({self._dtype.__name__})'
+    def __repr__(self) -> str:
+        return f"{self.expr}.cast({self._dtype.__name__})"
 
 
 class AggExpr(Expr):
@@ -585,36 +639,36 @@ class AggExpr(Expr):
     inside ``group_by().agg()`` or as a window function via ``.over()``.
     """
 
-    __slots__ = ('expr', 'agg_name', 'agg_func', '_alias')
+    __slots__ = ("expr", "agg_name", "agg_func", "_alias")
 
-    def __init__(self, expr: Expr, agg_name: AggFunc, agg_func):
+    def __init__(self, expr: Expr, agg_name: AggFunc, agg_func: Callable[[list], Any]) -> None:
         self.expr = expr
         self.agg_name = agg_name
         self.agg_func = agg_func
         self._alias: str | None = None
 
-    def eval_agg(self, values: list) -> Any:
+    def eval_agg(self, values: list[Any]) -> Any:
         filtered = [v for v in values if v is not None]
         if not filtered:
             return None
         return self.agg_func(filtered)
 
-    def eval(self, row, col_map):
+    def eval(self, row: tuple, col_map: dict[str, int]) -> Any:
         return self.expr.eval(row, col_map)
 
-    def required_columns(self):
+    def required_columns(self) -> set[str]:
         return self.expr.required_columns()
 
-    def output_dtype(self, schema):
-        if self.agg_name in ('count', 'n_unique'):
+    def output_dtype(self, schema: LazySchema) -> type:
+        if self.agg_name in ("count", "n_unique"):
             return int
-        if self.agg_name == 'mean':
+        if self.agg_name == "mean":
             return float
         return self.expr.output_dtype(schema)
 
-    def output_name(self):
-        base = self.expr.output_name() or 'value'
-        return self._alias or f'{base}_{self.agg_name}'
+    def output_name(self) -> str:
+        base = self.expr.output_name() or "value"
+        return self._alias or f"{base}_{self.agg_name}"
 
     def alias(self, name: str) -> AggExpr:
         """Rename the output column of this aggregation.
@@ -628,7 +682,9 @@ class AggExpr(Expr):
         self._alias = name
         return self
 
-    def over(self, partition_by=None, order_by=None) -> WindowExpr:
+    def over(
+        self, partition_by: str | list[str] | None = None, order_by: str | list[str] | None = None
+    ) -> WindowExpr:
         """Turn this aggregation into a window function.
 
         Args:
@@ -643,9 +699,9 @@ class AggExpr(Expr):
         """
         return WindowExpr(self, partition_by, order_by)
 
-    def __repr__(self):
-        a = f'.alias("{self._alias}")' if self._alias else ''
-        return f'{self.expr}.{self.agg_name}(){a}'
+    def __repr__(self) -> str:
+        a = f'.alias("{self._alias}")' if self._alias else ""
+        return f"{self.expr}.{self.agg_name}(){a}"
 
 
 class WindowExpr(Expr):
@@ -656,9 +712,14 @@ class WindowExpr(Expr):
     the query plan.
     """
 
-    __slots__ = ('expr', 'partition_by', 'order_by', '_alias')
+    __slots__ = ("expr", "partition_by", "order_by", "_alias")
 
-    def __init__(self, expr: Expr, partition_by=None, order_by=None):
+    def __init__(
+        self,
+        expr: Expr,
+        partition_by: str | list[str] | None = None,
+        order_by: str | list[str] | None = None,
+    ) -> None:
         self.expr = expr
         self.partition_by: list[str] = _standardize_str_list(partition_by)
         self.order_by: list[str] = _standardize_str_list(order_by)
@@ -670,27 +731,27 @@ class WindowExpr(Expr):
         cols.update(self.order_by)
         return cols
 
-    def output_dtype(self, schema):
+    def output_dtype(self, schema: LazySchema) -> type:
         return self.expr.output_dtype(schema)
 
-    def output_name(self):
+    def output_name(self) -> str | None:
         return self._alias or self.expr.output_name()
 
     def alias(self, name: str) -> WindowExpr:
         self._alias = name
         return self
 
-    def eval(self, row, col_map):
-        raise RuntimeError('WindowExpr must be evaluated via WindowNode')
+    def eval(self, row: tuple, col_map: dict[str, int]) -> Any:
+        raise RuntimeError("WindowExpr must be evaluated via WindowNode")
 
-    def __repr__(self):
+    def __repr__(self) -> str:
         parts = []
         if self.partition_by:
-            parts.append(f'partition_by={self.partition_by}')
+            parts.append(f"partition_by={self.partition_by}")
         if self.order_by:
-            parts.append(f'order_by={self.order_by}')
-        a = f'.alias("{self._alias}")' if self._alias else ''
-        return f'{self.expr}.over({", ".join(parts)}){a}'
+            parts.append(f"order_by={self.order_by}")
+        a = f'.alias("{self._alias}")' if self._alias else ""
+        return f"{self.expr}.over({', '.join(parts)}){a}"
 
 
 class RankExpr(Expr):
@@ -699,33 +760,35 @@ class RankExpr(Expr):
     Must be used with ``.over()`` to create a WindowExpr.
     """
 
-    __slots__ = ('kind', '_alias')
+    __slots__ = ("kind", "_alias")
 
-    def __init__(self, kind: RankKind):
+    def __init__(self, kind: RankKind) -> None:
         self.kind = kind
         self._alias: str | None = None
 
-    def over(self, partition_by=None, order_by=None) -> WindowExpr:
+    def over(
+        self, partition_by: str | list[str] | None = None, order_by: str | list[str] | None = None
+    ) -> WindowExpr:
         return WindowExpr(self, partition_by, order_by)
 
-    def required_columns(self):
+    def required_columns(self) -> set[str]:
         return set()
 
-    def output_dtype(self, schema):
+    def output_dtype(self, schema: LazySchema) -> type:
         return int
 
-    def output_name(self):
+    def output_name(self) -> str:
         return self._alias or self.kind
 
     def alias(self, name: str) -> RankExpr:
         self._alias = name
         return self
 
-    def eval(self, row, col_map):
-        raise RuntimeError('RankExpr must be evaluated via WindowNode')
+    def eval(self, row: tuple, col_map: dict[str, int]) -> Any:
+        raise RuntimeError("RankExpr must be evaluated via WindowNode")
 
-    def __repr__(self):
-        return f'{self.kind}()'
+    def __repr__(self) -> str:
+        return f"{self.kind}()"
 
 
 class CumExpr(Expr):
@@ -734,35 +797,37 @@ class CumExpr(Expr):
     Must be used with ``.over()`` to create a WindowExpr.
     """
 
-    __slots__ = ('expr', 'kind', '_alias')
+    __slots__ = ("expr", "kind", "_alias")
 
-    def __init__(self, expr: Expr, kind: CumKind):
+    def __init__(self, expr: Expr, kind: CumKind) -> None:
         self.expr = expr
         self.kind = kind
         self._alias: str | None = None
 
-    def over(self, partition_by=None, order_by=None) -> WindowExpr:
+    def over(
+        self, partition_by: str | list[str] | None = None, order_by: str | list[str] | None = None
+    ) -> WindowExpr:
         return WindowExpr(self, partition_by, order_by)
 
-    def required_columns(self):
+    def required_columns(self) -> set[str]:
         return self.expr.required_columns()
 
-    def output_dtype(self, schema):
+    def output_dtype(self, schema: LazySchema) -> type:
         return self.expr.output_dtype(schema)
 
-    def output_name(self):
-        base = self.expr.output_name() or 'value'
-        return self._alias or f'{base}_{self.kind}'
+    def output_name(self) -> str:
+        base = self.expr.output_name() or "value"
+        return self._alias or f"{base}_{self.kind}"
 
     def alias(self, name: str) -> CumExpr:
         self._alias = name
         return self
 
-    def eval(self, row, col_map):
-        raise RuntimeError('CumExpr must be evaluated via WindowNode')
+    def eval(self, row: tuple, col_map: dict[str, int]) -> Any:
+        raise RuntimeError("CumExpr must be evaluated via WindowNode")
 
-    def __repr__(self):
-        return f'{self.expr}.{self.kind}()'
+    def __repr__(self) -> str:
+        return f"{self.expr}.{self.kind}()"
 
 
 class OffsetExpr(Expr):
@@ -772,38 +837,40 @@ class OffsetExpr(Expr):
     Must be used with ``.over()`` to create a WindowExpr.
     """
 
-    __slots__ = ('expr', 'offset', 'default', '_alias')
+    __slots__ = ("expr", "offset", "default", "_alias")
 
-    def __init__(self, expr: Expr, offset: int, default=None):
+    def __init__(self, expr: Expr, offset: int, default: Any = None) -> None:
         self.expr = expr
         self.offset = offset
         self.default = default
         self._alias: str | None = None
 
-    def over(self, partition_by=None, order_by=None) -> WindowExpr:
+    def over(
+        self, partition_by: str | list[str] | None = None, order_by: str | list[str] | None = None
+    ) -> WindowExpr:
         return WindowExpr(self, partition_by, order_by)
 
-    def required_columns(self):
+    def required_columns(self) -> set[str]:
         return self.expr.required_columns()
 
-    def output_dtype(self, schema):
+    def output_dtype(self, schema: LazySchema) -> type:
         return self.expr.output_dtype(schema)
 
-    def output_name(self):
-        base = self.expr.output_name() or 'value'
-        kind = 'lag' if self.offset < 0 else 'lead'
-        return self._alias or f'{base}_{kind}_{abs(self.offset)}'
+    def output_name(self) -> str:
+        base = self.expr.output_name() or "value"
+        kind = "lag" if self.offset < 0 else "lead"
+        return self._alias or f"{base}_{kind}_{abs(self.offset)}"
 
     def alias(self, name: str) -> OffsetExpr:
         self._alias = name
         return self
 
-    def eval(self, row, col_map):
-        raise RuntimeError('OffsetExpr must be evaluated via WindowNode')
+    def eval(self, row: tuple, col_map: dict[str, int]) -> Any:
+        raise RuntimeError("OffsetExpr must be evaluated via WindowNode")
 
-    def __repr__(self):
-        kind = 'lag' if self.offset < 0 else 'lead'
-        return f'{self.expr}.{kind}({abs(self.offset)})'
+    def __repr__(self) -> str:
+        kind = "lag" if self.offset < 0 else "lead"
+        return f"{self.expr}.{kind}({abs(self.offset)})"
 
 
 class StringAccessor:
@@ -819,55 +886,55 @@ class StringAccessor:
         [{'name': 'Alice', 'upper': 'ALICE'}, {'name': 'Bob', 'upper': 'BOB'}]
     """
 
-    __slots__ = ('_expr',)
+    __slots__ = ("_expr",)
 
-    def __init__(self, expr: Expr):
+    def __init__(self, expr: Expr) -> None:
         self._expr = expr
 
-    def _unary(self, fn, name):
+    def _unary(self, fn: Callable[[Any], Any], name: str) -> UnaryExpr:
         return UnaryExpr(self._expr, fn, name)
 
-    def upper(self):
+    def upper(self) -> UnaryExpr:
         """Convert to uppercase.
 
         Examples:
             >>> col("name").str.upper()  # doctest: +SKIP
         """
-        return self._unary(lambda x: x.upper() if isinstance(x, str) else x, 'str.upper')
+        return self._unary(lambda x: x.upper() if isinstance(x, str) else x, "str.upper")
 
-    def lower(self):
+    def lower(self) -> UnaryExpr:
         """Convert to lowercase.
 
         Examples:
             >>> col("name").str.lower()  # doctest: +SKIP
         """
-        return self._unary(lambda x: x.lower() if isinstance(x, str) else x, 'str.lower')
+        return self._unary(lambda x: x.lower() if isinstance(x, str) else x, "str.lower")
 
-    def strip(self):
+    def strip(self) -> UnaryExpr:
         """Strip leading and trailing whitespace.
 
         Examples:
             >>> col("text").str.strip()  # doctest: +SKIP
         """
-        return self._unary(lambda x: x.strip() if isinstance(x, str) else x, 'str.strip')
+        return self._unary(lambda x: x.strip() if isinstance(x, str) else x, "str.strip")
 
-    def len(self):
+    def len(self) -> UnaryExpr:
         """Return the length of the string.
 
         Examples:
             >>> col("name").str.len()  # doctest: +SKIP
         """
-        return self._unary(lambda x: len(x) if isinstance(x, str) else 0, 'str.len')
+        return self._unary(lambda x: len(x) if isinstance(x, str) else 0, "str.len")
 
-    def title(self):
+    def title(self) -> UnaryExpr:
         """Convert to title case.
 
         Examples:
             >>> col("name").str.title()  # doctest: +SKIP
         """
-        return self._unary(lambda x: x.title() if isinstance(x, str) else x, 'str.title')
+        return self._unary(lambda x: x.title() if isinstance(x, str) else x, "str.title")
 
-    def contains(self, pat):
+    def contains(self, pat: str) -> UnaryExpr:
         """Test if string contains a pattern.
 
         Args:
@@ -881,9 +948,11 @@ class StringAccessor:
             >>> lf.filter(col("product").str.contains("Widget")).to_pylist()  # doctest: +SKIP
             [{'product': 'Widget A'}]
         """
-        return self._unary(lambda x: pat in x if isinstance(x, str) else False, f'str.contains("{pat}")')
+        return self._unary(
+            lambda x: pat in x if isinstance(x, str) else False, f'str.contains("{pat}")'
+        )
 
-    def startswith(self, prefix):
+    def startswith(self, prefix: str) -> UnaryExpr:
         """Test if string starts with a prefix.
 
         Args:
@@ -895,9 +964,12 @@ class StringAccessor:
         Examples:
             >>> col("name").str.startswith("A")  # doctest: +SKIP
         """
-        return self._unary(lambda x: x.startswith(prefix) if isinstance(x, str) else False, f'str.startswith("{prefix}")')
+        return self._unary(
+            lambda x: x.startswith(prefix) if isinstance(x, str) else False,
+            f'str.startswith("{prefix}")',
+        )
 
-    def endswith(self, suffix):
+    def endswith(self, suffix: str) -> UnaryExpr:
         """Test if string ends with a suffix.
 
         Args:
@@ -909,9 +981,12 @@ class StringAccessor:
         Examples:
             >>> col("file").str.endswith(".csv")  # doctest: +SKIP
         """
-        return self._unary(lambda x: x.endswith(suffix) if isinstance(x, str) else False, f'str.endswith("{suffix}")')
+        return self._unary(
+            lambda x: x.endswith(suffix) if isinstance(x, str) else False,
+            f'str.endswith("{suffix}")',
+        )
 
-    def replace(self, old, new):
+    def replace(self, old: str, new: str) -> UnaryExpr:
         """Replace occurrences of a substring.
 
         Args:
@@ -923,9 +998,12 @@ class StringAccessor:
             >>> lf.with_column("renamed", col("name").str.replace("Widget", "Gadget")).to_pylist()  # doctest: +SKIP
             [{'name': 'Widget A', 'renamed': 'Gadget A'}]
         """
-        return self._unary(lambda x: x.replace(old, new) if isinstance(x, str) else x, f'str.replace("{old}","{new}")')
+        return self._unary(
+            lambda x: x.replace(old, new) if isinstance(x, str) else x,
+            f'str.replace("{old}","{new}")',
+        )
 
-    def slice(self, start=None, end=None):
+    def slice(self, start: int | None = None, end: int | None = None) -> UnaryExpr:
         """Extract a substring by position.
 
         Args:
@@ -937,7 +1015,9 @@ class StringAccessor:
             >>> lf.with_column("first3", col("name").str.slice(0, 3)).to_pylist()  # doctest: +SKIP
             [{'name': 'Alice', 'first3': 'Ali'}]
         """
-        return self._unary(lambda x: x[start:end] if isinstance(x, str) else x, f'str[{start}:{end}]')
+        return self._unary(
+            lambda x: x[start:end] if isinstance(x, str) else x, f"str[{start}:{end}]"
+        )
 
 
 class DateTimeAccessor:
@@ -957,94 +1037,107 @@ class DateTimeAccessor:
         [{'ts': datetime.datetime(2024, 1, 15, 8, 30), 'year': 2024}]
     """
 
-    __slots__ = ('_expr',)
+    __slots__ = ("_expr",)
 
-    def __init__(self, expr: Expr):
+    def __init__(self, expr: Expr) -> None:
         self._expr = expr
 
-    def _unary(self, fn, name, dtype=int):
+    def _unary(self, fn: Callable[[Any], Any], name: str, dtype: type = int) -> _DtUnaryExpr:
         return _DtUnaryExpr(self._expr, fn, name, dtype)
 
-    def year(self):
+    def year(self) -> _DtUnaryExpr:
         """Extract the year component."""
-        return self._unary(lambda x: x.year, 'dt.year')
+        return self._unary(lambda x: x.year, "dt.year")
 
-    def month(self):
+    def month(self) -> _DtUnaryExpr:
         """Extract the month (1–12)."""
-        return self._unary(lambda x: x.month, 'dt.month')
+        return self._unary(lambda x: x.month, "dt.month")
 
-    def day(self):
+    def day(self) -> _DtUnaryExpr:
         """Extract the day of the month (1–31)."""
-        return self._unary(lambda x: x.day, 'dt.day')
+        return self._unary(lambda x: x.day, "dt.day")
 
-    def hour(self):
+    def hour(self) -> _DtUnaryExpr:
         """Extract the hour (0–23)."""
-        return self._unary(lambda x: x.hour, 'dt.hour')
+        return self._unary(lambda x: x.hour, "dt.hour")
 
-    def minute(self):
+    def minute(self) -> _DtUnaryExpr:
         """Extract the minute (0–59)."""
-        return self._unary(lambda x: x.minute, 'dt.minute')
+        return self._unary(lambda x: x.minute, "dt.minute")
 
-    def second(self):
+    def second(self) -> _DtUnaryExpr:
         """Extract the second (0–59)."""
-        return self._unary(lambda x: x.second, 'dt.second')
+        return self._unary(lambda x: x.second, "dt.second")
 
-    def microsecond(self):
+    def microsecond(self) -> _DtUnaryExpr:
         """Extract the microsecond (0–999999)."""
-        return self._unary(lambda x: x.microsecond, 'dt.microsecond')
+        return self._unary(lambda x: x.microsecond, "dt.microsecond")
 
-    def weekday(self):
+    def weekday(self) -> _DtUnaryExpr:
         """Day of the week (Monday=0, Sunday=6)."""
-        return self._unary(lambda x: x.weekday(), 'dt.weekday')
+        return self._unary(lambda x: x.weekday(), "dt.weekday")
 
-    def isoweekday(self):
+    def isoweekday(self) -> _DtUnaryExpr:
         """ISO day of the week (Monday=1, Sunday=7)."""
-        return self._unary(lambda x: x.isoweekday(), 'dt.isoweekday')
+        return self._unary(lambda x: x.isoweekday(), "dt.isoweekday")
 
-    def day_name(self):
+    def day_name(self) -> _DtUnaryExpr:
         """Full name of the day (e.g. ``'Monday'``).
 
         Examples:
             >>> col("ts").dt.day_name()  # doctest: +SKIP
         """
-        _DAYS = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday']
-        return self._unary(lambda x: _DAYS[x.weekday()], 'dt.day_name', str)
+        _DAYS = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"]
+        return self._unary(lambda x: _DAYS[x.weekday()], "dt.day_name", str)
 
-    def month_name(self):
+    def month_name(self) -> _DtUnaryExpr:
         """Full name of the month (e.g. ``'January'``).
 
         Examples:
             >>> col("ts").dt.month_name()  # doctest: +SKIP
         """
-        _MONTHS = ['', 'January', 'February', 'March', 'April', 'May', 'June',
-                   'July', 'August', 'September', 'October', 'November', 'December']
-        return self._unary(lambda x: _MONTHS[x.month], 'dt.month_name', str)
+        _MONTHS = [
+            "",
+            "January",
+            "February",
+            "March",
+            "April",
+            "May",
+            "June",
+            "July",
+            "August",
+            "September",
+            "October",
+            "November",
+            "December",
+        ]
+        return self._unary(lambda x: _MONTHS[x.month], "dt.month_name", str)
 
-    def quarter(self):
+    def quarter(self) -> _DtUnaryExpr:
         """Quarter of the year (1–4).
 
         Examples:
             >>> col("ts").dt.quarter()  # doctest: +SKIP
         """
-        return self._unary(lambda x: (x.month - 1) // 3 + 1, 'dt.quarter')
+        return self._unary(lambda x: (x.month - 1) // 3 + 1, "dt.quarter")
 
-    def week(self):
+    def week(self) -> _DtUnaryExpr:
         """ISO week number (1–53).
 
         Examples:
             >>> col("ts").dt.week()  # doctest: +SKIP
         """
-        return self._unary(lambda x: x.isocalendar()[1], 'dt.week')
+        return self._unary(lambda x: x.isocalendar()[1], "dt.week")
 
-    def day_of_year(self):
+    def day_of_year(self) -> _DtUnaryExpr:
         """Day of the year (1–366).
 
         Examples:
             >>> col("ts").dt.day_of_year()  # doctest: +SKIP
         """
-        return self._unary(lambda x: x.timetuple().tm_yday, 'dt.day_of_year')
+        return self._unary(lambda x: x.timetuple().tm_yday, "dt.day_of_year")
 
-    def date(self):
+    def date(self) -> _DtUnaryExpr:
         """Extract the date part, discarding the time.
 
         Returns a ``datetime.date`` object.
@@ -1052,9 +1145,9 @@ class DateTimeAccessor:
         Examples:
             >>> col("ts").dt.date()  # doctest: +SKIP
         """
-        return self._unary(lambda x: x.date() if hasattr(x, 'date') else x, 'dt.date', _date)
+        return self._unary(lambda x: x.date() if hasattr(x, "date") else x, "dt.date", _date)
 
-    def time(self):
+    def time(self) -> _DtUnaryExpr:
         """Extract the time part, discarding the date.
 
         Returns a ``datetime.time`` object.
@@ -1062,9 +1155,9 @@ class DateTimeAccessor:
         Examples:
             >>> col("ts").dt.time()  # doctest: +SKIP
         """
-        return self._unary(lambda x: x.time() if hasattr(x, 'time') else x, 'dt.time', _time)
+        return self._unary(lambda x: x.time() if hasattr(x, "time") else x, "dt.time", _time)
 
-    def truncate(self, unit: DateTruncUnit):
+    def truncate(self, unit: DateTruncUnit) -> _DtUnaryExpr:
         """Truncate the datetime to a given unit.
 
         Args:
@@ -1083,26 +1176,32 @@ class DateTimeAccessor:
             ValueError: If *unit* is not recognized.
         """
         from datetime import datetime as _dt
-        if unit == 'year':
+
+        if unit == "year":
+
             def fn(x):
                 return _dt(x.year, 1, 1)
-        elif unit == 'month':
+        elif unit == "month":
+
             def fn(x):
                 return _dt(x.year, x.month, 1)
-        elif unit == 'day':
+        elif unit == "day":
+
             def fn(x):
                 return _dt(x.year, x.month, x.day)
-        elif unit == 'hour':
+        elif unit == "hour":
+
             def fn(x):
                 return _dt(x.year, x.month, x.day, x.hour)
-        elif unit == 'minute':
+        elif unit == "minute":
+
             def fn(x):
                 return _dt(x.year, x.month, x.day, x.hour, x.minute)
         else:
-            raise ValueError(f'Unknown truncation unit: {unit!r}. Use year/month/day/hour/minute.')
+            raise ValueError(f"Unknown truncation unit: {unit!r}. Use year/month/day/hour/minute.")
         return self._unary(fn, f'dt.truncate("{unit}")', _datetime)
 
-    def strftime(self, fmt: str):
+    def strftime(self, fmt: str) -> _DtUnaryExpr:
         """Format datetime as a string.
 
         Args:
@@ -1113,7 +1212,7 @@ class DateTimeAccessor:
         """
         return self._unary(lambda x: x.strftime(fmt), f'dt.strftime("{fmt}")', str)
 
-    def epoch_seconds(self):
+    def epoch_seconds(self) -> _DtUnaryExpr:
         """Convert to Unix epoch seconds (float).
 
         Naive datetimes are treated as UTC.
@@ -1123,15 +1222,19 @@ class DateTimeAccessor:
         """
         from datetime import datetime as _dt
         from datetime import timezone as _tz
+
         _EPOCH = _dt(1970, 1, 1, tzinfo=_tz.utc)
+
         def _to_epoch(x):
             if x.tzinfo is None:
                 from datetime import timezone
+
                 x = x.replace(tzinfo=timezone.utc)
             return (x - _EPOCH).total_seconds()
-        return self._unary(_to_epoch, 'dt.epoch_seconds', float)
 
-    def add_days(self, n):
+        return self._unary(_to_epoch, "dt.epoch_seconds", float)
+
+    def add_days(self, n: int) -> _DtUnaryExpr:
         """Add *n* days to the datetime.
 
         Args:
@@ -1141,10 +1244,11 @@ class DateTimeAccessor:
             >>> col("ts").dt.add_days(7)  # doctest: +SKIP
         """
         from datetime import timedelta
-        d = timedelta(days=n)
-        return self._unary(lambda x: x + d, f'dt.add_days({n})', _datetime)
 
-    def add_hours(self, n):
+        d = timedelta(days=n)
+        return self._unary(lambda x: x + d, f"dt.add_days({n})", _datetime)
+
+    def add_hours(self, n: int) -> _DtUnaryExpr:
         """Add *n* hours to the datetime.
 
         Args:
@@ -1154,10 +1258,11 @@ class DateTimeAccessor:
             >>> col("ts").dt.add_hours(3)  # doctest: +SKIP
         """
         from datetime import timedelta
-        d = timedelta(hours=n)
-        return self._unary(lambda x: x + d, f'dt.add_hours({n})', _datetime)
 
-    def add_minutes(self, n):
+        d = timedelta(hours=n)
+        return self._unary(lambda x: x + d, f"dt.add_hours({n})", _datetime)
+
+    def add_minutes(self, n: int) -> _DtUnaryExpr:
         """Add *n* minutes to the datetime.
 
         Args:
@@ -1167,10 +1272,11 @@ class DateTimeAccessor:
             >>> col("ts").dt.add_minutes(30)  # doctest: +SKIP
         """
         from datetime import timedelta
-        d = timedelta(minutes=n)
-        return self._unary(lambda x: x + d, f'dt.add_minutes({n})', _datetime)
 
-    def add_seconds(self, n):
+        d = timedelta(minutes=n)
+        return self._unary(lambda x: x + d, f"dt.add_minutes({n})", _datetime)
+
+    def add_seconds(self, n: int) -> _DtUnaryExpr:
         """Add *n* seconds to the datetime.
 
         Args:
@@ -1180,32 +1286,37 @@ class DateTimeAccessor:
             >>> col("ts").dt.add_seconds(90)  # doctest: +SKIP
         """
         from datetime import timedelta
+
         d = timedelta(seconds=n)
-        return self._unary(lambda x: x + d, f'dt.add_seconds({n})', _datetime)
+        return self._unary(lambda x: x + d, f"dt.add_seconds({n})", _datetime)
 
 
 class _DtUnaryExpr(UnaryExpr):
-    __slots__ = ('_dtype',)
+    __slots__ = ("_dtype",)
 
-    def __init__(self, operand, op, op_str, dtype=int):
+    def __init__(
+        self, operand: Expr, op: Callable[[Any], Any], op_str: str, dtype: type = int
+    ) -> None:
         super().__init__(operand, op, op_str)
         self._dtype = dtype
 
-    def output_dtype(self, schema):
+    def output_dtype(self, schema: LazySchema) -> type:
         return self._dtype
 
-    def eval(self, row, col_map):
+    def eval(self, row: tuple, col_map: dict[str, int]) -> Any:
         val = self.operand.eval(row, col_map)
         if val is None:
             return None
         return self.op(val)
 
-    def compile(self, col_map):
+    def compile(self, col_map: dict[str, int]) -> Callable[[tuple], Any]:
         inner = self.operand.compile(col_map)
         op = self.op
-        def _eval(row):
+
+        def _eval(row: tuple) -> Any:
             val = inner(row)
             return None if val is None else op(val)
+
         return _eval
 
 
@@ -1214,23 +1325,24 @@ from datetime import datetime as _datetime
 from datetime import time as _time
 
 _DATETIME_FORMATS = [
-    '%Y-%m-%dT%H:%M:%S.%f',
-    '%Y-%m-%dT%H:%M:%S',
-    '%Y-%m-%d %H:%M:%S.%f',
-    '%Y-%m-%d %H:%M:%S',
-    '%Y-%m-%d %H:%M',
-    '%Y-%m-%d',
-    '%m/%d/%Y %H:%M:%S',
-    '%m/%d/%Y',
-    '%d/%m/%Y %H:%M:%S',
-    '%d/%m/%Y',
-    '%Y%m%d',
-    '%d-%b-%Y',
-    '%b %d, %Y',
-    '%B %d, %Y',
+    "%Y-%m-%dT%H:%M:%S.%f",
+    "%Y-%m-%dT%H:%M:%S",
+    "%Y-%m-%d %H:%M:%S.%f",
+    "%Y-%m-%d %H:%M:%S",
+    "%Y-%m-%d %H:%M",
+    "%Y-%m-%d",
+    "%m/%d/%Y %H:%M:%S",
+    "%m/%d/%Y",
+    "%d/%m/%Y %H:%M:%S",
+    "%d/%m/%Y",
+    "%Y%m%d",
+    "%d-%b-%Y",
+    "%b %d, %Y",
+    "%B %d, %Y",
 ]
 
-def _try_parse_datetime(value: str):
+
+def _try_parse_datetime(value: str) -> tuple[_datetime, str] | None:
     v = value.strip()
     if not v or len(v) < 6:
         return None
@@ -1242,7 +1354,7 @@ def _try_parse_datetime(value: str):
     return None
 
 
-def _detect_datetime_format(values: list):
+def _detect_datetime_format(values: list[str]) -> str | None:
     non_empty = [v for v in values if v and v.strip()]
     if not non_empty:
         return None
@@ -1287,7 +1399,8 @@ def col(name: str) -> Col:
     """
     return Col(name)
 
-def lit(value) -> Lit:
+
+def lit(value: Any) -> Lit:
     """Create a literal value expression.
 
     Wraps a Python value as an expression for use in computations.
@@ -1303,6 +1416,7 @@ def lit(value) -> Lit:
     """
     return Lit(value)
 
+
 def rank() -> RankExpr:
     """Create a rank window function expression.
 
@@ -1316,7 +1430,8 @@ def rank() -> RankExpr:
         >>> LazyFrame(data).with_column("r", rank().over(order_by="score")).to_pylist()  # doctest: +SKIP
         [{'name': 'a', 'score': 10, 'r': 1}, {'name': 'b', 'score': 20, 'r': 2}, {'name': 'c', 'score': 20, 'r': 2}, {'name': 'd', 'score': 30, 'r': 4}]
     """
-    return RankExpr('rank')
+    return RankExpr("rank")
+
 
 def dense_rank() -> RankExpr:
     """Create a dense_rank window function expression.
@@ -1331,7 +1446,8 @@ def dense_rank() -> RankExpr:
         >>> LazyFrame(data).with_column("dr", dense_rank().over(order_by="score")).to_pylist()  # doctest: +SKIP
         [{'name': 'a', ..., 'dr': 1}, {'name': 'b', ..., 'dr': 2}, {'name': 'c', ..., 'dr': 2}, {'name': 'd', ..., 'dr': 3}]
     """
-    return RankExpr('dense_rank')
+    return RankExpr("dense_rank")
+
 
 def row_number() -> RankExpr:
     """Create a row_number window function expression.
@@ -1347,9 +1463,10 @@ def row_number() -> RankExpr:
         ... ).to_pylist()  # doctest: +SKIP
         [{'region': 'EU', 'amount': 100, 'rn': 1}, {'region': 'EU', 'amount': 200, 'rn': 2}]
     """
-    return RankExpr('row_number')
+    return RankExpr("row_number")
 
-def when(condition: Expr, then_val) -> WhenExpr:
+
+def when(condition: Expr, then_val: Any) -> WhenExpr:
     """Begin a conditional expression (SQL CASE WHEN).
 
     Chain with ``.when()`` for additional branches and ``.otherwise()``
@@ -1382,13 +1499,13 @@ class WhenExpr(Expr):
     ``.when()`` and ``.otherwise()``.
     """
 
-    __slots__ = ('_branches', '_otherwise')
+    __slots__ = ("_branches", "_otherwise")
 
-    def __init__(self, condition: Expr, then_val: Expr):
+    def __init__(self, condition: Expr, then_val: Expr) -> None:
         self._branches = [(condition, then_val)]
         self._otherwise: Expr = Lit(None)
 
-    def when(self, condition: Expr, then_val) -> WhenExpr:
+    def when(self, condition: Expr, then_val: Any) -> WhenExpr:
         """Add another conditional branch.
 
         Args:
@@ -1398,7 +1515,7 @@ class WhenExpr(Expr):
         self._branches.append((condition, _ensure_expr(then_val)))
         return self
 
-    def otherwise(self, val) -> WhenExpr:
+    def otherwise(self, val: Any) -> WhenExpr:
         """Set the default value when no conditions match.
 
         Args:
@@ -1407,34 +1524,35 @@ class WhenExpr(Expr):
         self._otherwise = _ensure_expr(val)
         return self
 
-    def eval(self, row, col_map):
+    def eval(self, row: tuple, col_map: dict[str, int]) -> Any:
         for cond, val in self._branches:
             if cond.eval(row, col_map):
                 return val.eval(row, col_map)
         return self._otherwise.eval(row, col_map)
 
-    def compile(self, col_map):
-        compiled_branches = [(c.compile(col_map), v.compile(col_map))
-                            for c, v in self._branches]
+    def compile(self, col_map: dict[str, int]) -> Callable[[tuple], Any]:
+        compiled_branches = [(c.compile(col_map), v.compile(col_map)) for c, v in self._branches]
         otherwise_fn = self._otherwise.compile(col_map)
-        def _eval(row):
+
+        def _eval(row: tuple) -> Any:
             for cond_fn, val_fn in compiled_branches:
                 if cond_fn(row):
                     return val_fn(row)
             return otherwise_fn(row)
+
         return _eval
 
-    def required_columns(self):
-        cols = set()
+    def required_columns(self) -> set[str]:
+        cols: set[str] = set()
         for cond, val in self._branches:
             cols |= cond.required_columns()
             cols |= val.required_columns()
         cols |= self._otherwise.required_columns()
         return cols
 
-    def output_dtype(self, schema):
+    def output_dtype(self, schema: LazySchema) -> type:
         return self._branches[0][1].output_dtype(schema)
 
-    def __repr__(self):
-        parts = [f'when({c}, {v})' for c, v in self._branches]
-        return '.'.join(parts) + f'.otherwise({self._otherwise})'
+    def __repr__(self) -> str:
+        parts = [f"when({c}, {v})" for c, v in self._branches]
+        return ".".join(parts) + f".otherwise({self._otherwise})"
