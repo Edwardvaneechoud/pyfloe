@@ -9,7 +9,7 @@ from typing import (
     get_type_hints,
 )
 
-from .expr import AggExpr, AggFunc, Col, Expr, JoinHow, WindowExpr
+from .expr import AggExpr, AggFunc, AliasExpr, Col, Expr, JoinHow, WindowExpr
 from .plan import (
     AggNode,
     ApplyNode,
@@ -56,7 +56,7 @@ class LazyGroupBy:
     aggregation expressions and produce a result LazyFrame.
     """
 
-    def __init__(self, lf: LazyFrame, group_cols: list[str], sorted: bool = False):
+    def __init__(self, lf: LazyFrame, group_cols: list[str], sorted: bool = False) -> None:
         self._lf = lf
         self._group_cols = group_cols
         self._sorted = sorted
@@ -95,7 +95,7 @@ class LazyGroupBy:
                     f".mean(), .min(), .max(), .first(), .last(), .n_unique()"
                 )
         if self._sorted:
-            node = SortedAggNode(self._lf._plan, self._group_cols, list(agg_exprs))
+            node: PlanNode = SortedAggNode(self._lf._plan, self._group_cols, list(agg_exprs))
         else:
             node = AggNode(self._lf._plan, self._group_cols, list(agg_exprs))
         return LazyFrame._from_plan(node)
@@ -116,7 +116,9 @@ class LazyFrame:
 
     __slots__ = ("_plan", "_materialized", "_name", "_optimized")
 
-    def __init__(self, raw_data: list[dict] | list = None, *, name: str = None):
+    def __init__(
+        self, raw_data: list[dict] | list | None = None, *, name: str | None = None
+    ) -> None:
         """Create a LazyFrame from in-memory data.
 
         Args:
@@ -147,7 +149,7 @@ class LazyFrame:
         self._materialized: list[tuple] | None = None
         self._optimized: PlanNode | None = None
         if raw_data is None:
-            self._plan: PlanNode | None = None
+            self._plan: PlanNode = ScanNode([], [])
             return
         if isinstance(raw_data, dict):
             cols = list(raw_data.keys())
@@ -181,7 +183,7 @@ class LazyFrame:
             )
 
     @classmethod
-    def _from_plan(cls, plan: PlanNode, name: str = None) -> LazyFrame:
+    def _from_plan(cls, plan: PlanNode, name: str | None = None) -> LazyFrame:
         lf = cls.__new__(cls)
         lf._plan = plan
         lf._materialized = None
@@ -247,7 +249,7 @@ class LazyFrame:
             plan = Optimizer().optimize(plan)
         return plan.explain()
 
-    def print_explain(self, optimized: bool = False):
+    def print_explain(self, optimized: bool = False) -> None:
         """Print the query plan tree to stdout.
 
         Shortcut for ``print(lf.explain())``.
@@ -279,7 +281,9 @@ class LazyFrame:
             [{'a': 1, 'sum': 5}]
         """
         if all(isinstance(a, str) for a in args):
-            return LazyFrame._from_plan(ProjectNode(self._plan, list(args)))
+            return LazyFrame._from_plan(
+                ProjectNode(self._plan, [a for a in args if isinstance(a, str)])
+            )
         exprs = [Col(a) if isinstance(a, str) else a for a in args]
         return LazyFrame._from_plan(ProjectNode(self._plan, exprs=[e for e in exprs]))
 
@@ -345,24 +349,30 @@ class LazyFrame:
                     def __repr__(self):
                         return f"λ({', '.join(self._col_names)})"
 
-                pred = _LegacyPredicate(cols, _filter)
-                return LazyFrame._from_plan(FilterNode(self._plan, pred))
+                predicate: Expr = _LegacyPredicate(cols, _filter)
+                return LazyFrame._from_plan(FilterNode(self._plan, predicate))
             else:
                 val = _filter
                 col_name = (
                     predicate_or_col if isinstance(predicate_or_col, str) else predicate_or_col[0]
                 )
-                pred = BinaryExpr(_Col(col_name), _Lit(val), _op.eq, "==")
-                return LazyFrame._from_plan(FilterNode(self._plan, pred))
+                predicate = BinaryExpr(_Col(col_name), _Lit(val), _op.eq, "==")
+                return LazyFrame._from_plan(FilterNode(self._plan, predicate))
 
         raise ValueError("Provide an Expr predicate or use legacy filter(col, _filter=...)")
 
-    def with_column(self, name: str, expr: Expr) -> LazyFrame:
+    def with_column(self, name_or_expr: str | Expr, expr: Expr | None = None) -> LazyFrame:
         """Add a computed column to the LazyFrame.
 
+        Can be called with a name and expression, or with a single
+        expression whose output name is derived via ``.alias()`` or from
+        the underlying column reference.
+
         Args:
-            name: Name for the new column.
-            expr: Expression to compute the column values.
+            name_or_expr: Column name (str) or an expression with an
+                inferrable output name.
+            expr: Expression to compute the column values (required when
+                *name_or_expr* is a string).
 
         Returns:
             A new LazyFrame with the additional column.
@@ -371,15 +381,37 @@ class LazyFrame:
             >>> lf = LazyFrame([{"price": 100}, {"price": 200}])
             >>> lf.with_column("tax", col("price") * 0.2).to_pylist()
             [{'price': 100, 'tax': 20.0}, {'price': 200, 'tax': 40.0}]
+            >>> lf.with_column((col("price") * 0.2).alias("tax")).to_pylist()
+            [{'price': 100, 'tax': 20.0}, {'price': 200, 'tax': 40.0}]
         """
-        if isinstance(expr, WindowExpr):
-            return LazyFrame._from_plan(WindowNode(self._plan, expr, name))
-        return LazyFrame._from_plan(WithColumnNode(self._plan, name, expr))
+        if isinstance(name_or_expr, Expr):
+            resolved_expr = name_or_expr
+            resolved_name = resolved_expr.output_name()
+            if resolved_name is None:
+                raise ValueError(
+                    "Cannot infer output name for expression. "
+                    "Use .alias('name') or pass the name explicitly."
+                )
+            if isinstance(resolved_expr, AliasExpr):
+                resolved_expr = resolved_expr.expr
+        else:
+            if expr is None:
+                raise ValueError("expr is required when name is a string.")
+            resolved_name = name_or_expr
+            resolved_expr = expr
 
-    def with_columns(self, **kwargs: Expr) -> LazyFrame:
+        if isinstance(resolved_expr, WindowExpr):
+            return LazyFrame._from_plan(WindowNode(self._plan, resolved_expr, resolved_name))
+        return LazyFrame._from_plan(WithColumnNode(self._plan, resolved_name, resolved_expr))
+
+    def with_columns(self, *args: Expr, **kwargs: Expr) -> LazyFrame:
         """Add multiple computed columns at once.
 
+        Accepts positional expressions (with names derived from
+        ``.alias()`` or the underlying column) and/or keyword arguments.
+
         Args:
+            *args: Expressions with inferrable output names.
             **kwargs: Column name to expression mappings.
 
         Returns:
@@ -388,12 +420,19 @@ class LazyFrame:
         Examples:
             >>> lf = LazyFrame([{"amount": 250, "region": "eu"}])
             >>> lf.with_columns(
+            ...     (col("amount") * 2).alias("double"),
+            ...     col("region").str.upper().alias("upper_region"),
+            ... ).to_pylist()
+            [{'amount': 250, 'region': 'eu', 'double': 500, 'upper_region': 'EU'}]
+            >>> lf.with_columns(
             ...     double=col("amount") * 2,
             ...     upper_region=col("region").str.upper(),
             ... ).to_pylist()
             [{'amount': 250, 'region': 'eu', 'double': 500, 'upper_region': 'EU'}]
         """
         lf = self
+        for expr in args:
+            lf = lf.with_column(expr)
         for name, expr in kwargs.items():
             lf = lf.with_column(name, expr)
         return lf
@@ -462,13 +501,13 @@ class LazyFrame:
     def join(
         self,
         other: LazyFrame,
-        on: str | list[str] = None,
-        left_on: str | list[str] = None,
-        right_on: str | list[str] = None,
+        on: str | list[str] | None = None,
+        left_on: str | list[str] | None = None,
+        right_on: str | list[str] | None = None,
         how: JoinHow = "inner",
         sorted: bool = False,
-        left_cols=None,
-        right_cols=None,
+        left_cols: str | list[str] | None = None,
+        right_cols: str | list[str] | None = None,
     ) -> LazyFrame:
         """Join with another LazyFrame.
 
@@ -512,6 +551,8 @@ class LazyFrame:
         if right_on is None:
             right_on = left_on
 
+        assert left_on is not None
+        assert right_on is not None
         if sorted:
             return LazyFrame._from_plan(
                 SortedMergeJoinNode(self._plan, other._plan, left_on, right_on, how)
@@ -551,12 +592,13 @@ class LazyFrame:
                 on_cols = [on_cols]
             elif on_cols is None:
                 on_cols = [c for c in self.columns if c not in cols]
-            agg_exprs = []
+            agg_exprs: list[AggExpr] = []
             for oc in on_cols:
 
                 class _LegacyAgg(AggExpr):
-                    def __init__(self, col_name, func):
-                        super().__init__(Col(col_name), "agg", func)
+                    def __init__(self, col_name: str, func: Callable) -> None:
+                        super().__init__(Col(col_name), "first", func)
+                        self.agg_name = "agg"  # type: ignore[assignment]
                         self._alias = col_name
 
                 agg_exprs.append(_LegacyAgg(oc, agg_func))
@@ -679,7 +721,7 @@ class LazyFrame:
         return LazyFrame._from_plan(UnionNode([self._plan, other._plan]))
 
     def apply(
-        self, func: Callable, columns: list[str] = None, output_dtype: type = None
+        self, func: Callable, columns: list[str] | None = None, output_dtype: type | None = None
     ) -> LazyFrame:
         """Apply a function to column values.
 
@@ -860,7 +902,7 @@ class LazyFrame:
 
     def to_csv(
         self, path: str, *, delimiter: str = ",", header: bool = True, encoding: str = "utf-8"
-    ):
+    ) -> None:
         """Stream the query plan to a CSV file with constant memory.
 
         Data is written row-by-row without buffering the entire dataset,
@@ -880,7 +922,7 @@ class LazyFrame:
 
         _to_csv_impl(self, path, delimiter, header, encoding)
 
-    def to_tsv(self, path: str, **kwargs):
+    def to_tsv(self, path: str, **kwargs: Any) -> None:
         """Stream the query plan to a TSV (tab-separated) file.
 
         Equivalent to ``lf.to_csv(path, delimiter='\\t')``.
@@ -892,7 +934,7 @@ class LazyFrame:
         kwargs.setdefault("delimiter", "\t")
         self.to_csv(path, **kwargs)
 
-    def to_jsonl(self, path: str, *, encoding: str = "utf-8"):
+    def to_jsonl(self, path: str, *, encoding: str = "utf-8") -> None:
         """Stream the query plan to a JSON Lines file.
 
         Args:
@@ -903,7 +945,7 @@ class LazyFrame:
 
         _to_jsonl_impl(self, path, encoding)
 
-    def to_json(self, path: str, *, encoding: str = "utf-8", indent: int = None):
+    def to_json(self, path: str, *, encoding: str = "utf-8", indent: int | None = None) -> None:
         """Write data as a JSON array.
 
         Args:
@@ -915,7 +957,7 @@ class LazyFrame:
 
         _to_json_impl(self, path, encoding, indent)
 
-    def to_parquet(self, path: str, **kwargs):
+    def to_parquet(self, path: str, **kwargs: Any) -> None:
         """Write data to a Parquet file (requires pyarrow).
 
         Args:
@@ -943,7 +985,7 @@ class LazyFrame:
             "Call .collect() first, or use .head(n) to peek at rows."
         )
 
-    def __getitem__(self, key):
+    def __getitem__(self, key: str | int | slice) -> LazyFrame | dict[str, Any]:
         if isinstance(key, str):
             return self.select(key)
         if isinstance(key, int):
@@ -962,7 +1004,7 @@ class LazyFrame:
             return len(self._plan._data)
         return None
 
-    def __repr__(self):
+    def __repr__(self) -> str:
         cols = self.columns
         ncols = len(cols)
         col_str = ", ".join(cols[:8])
@@ -975,7 +1017,7 @@ class LazyFrame:
             return f"LazyFrame [{n} rows × {ncols} cols]\nColumns: [{col_str}]"
         return f"LazyFrame [? rows × {ncols} cols] (lazy)\nColumns: [{col_str}]"
 
-    def _repr_short(self):
+    def _repr_short(self) -> str:
         n = self._known_length
         if n is not None:
             return f"LazyFrame[{n}×{len(self.columns)}]"
@@ -1098,12 +1140,14 @@ class TypedLazyFrame(LazyFrame, Generic[T]):
 
     __slots__ = ("_row_type",)
 
-    def __init__(self, *args, **kwargs):
+    def __init__(self, *args: Any, **kwargs: Any) -> None:
         super().__init__(*args, **kwargs)
-        self._row_type = None
+        self._row_type: type[T] | None = None
 
     @classmethod
-    def _from_typed(cls, plan: PlanNode, row_type: type[T], name: str = None) -> TypedLazyFrame[T]:
+    def _from_typed(
+        cls, plan: PlanNode, row_type: type[T] | None = None, name: str | None = None
+    ) -> TypedLazyFrame[T]:
         lf = cls.__new__(cls)
         lf._plan = plan
         lf._materialized = None
@@ -1112,21 +1156,21 @@ class TypedLazyFrame(LazyFrame, Generic[T]):
         return lf
 
     @property
-    def row_type(self) -> type[T]:
+    def row_type(self) -> type[T] | None:
         return self._row_type
 
-    def to_pylist(self) -> list[T]:
+    def to_pylist(self) -> list[Any]:
         return super().to_pylist()
 
     def collect(self, optimize: bool = True) -> TypedLazyFrame[T]:
         super().collect(optimize)
         return self
 
-    def filter(self, *args, **kwargs) -> TypedLazyFrame[T]:
+    def filter(self, *args: Any, **kwargs: Any) -> TypedLazyFrame[T]:
         result = super().filter(*args, **kwargs)
         return TypedLazyFrame._from_typed(result._plan, self._row_type, result._name)
 
-    def sort(self, *args, **kwargs) -> TypedLazyFrame[T]:
+    def sort(self, *args: Any, **kwargs: Any) -> TypedLazyFrame[T]:
         result = super().sort(*args, **kwargs)
         return TypedLazyFrame._from_typed(result._plan, self._row_type, result._name)
 
@@ -1134,7 +1178,7 @@ class TypedLazyFrame(LazyFrame, Generic[T]):
         result = super().head(n, optimize)
         return TypedLazyFrame._from_typed(result._plan, self._row_type, result._name)
 
-    def __repr__(self):
+    def __repr__(self) -> str:
         base = super().__repr__()
         type_name = self._row_type.__name__ if self._row_type else "?"
         return base.replace("LazyFrame", f"TypedLazyFrame[{type_name}]", 1)

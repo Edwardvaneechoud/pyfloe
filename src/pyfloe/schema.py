@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections.abc import Iterator
 from dataclasses import dataclass
 
 
@@ -39,9 +40,9 @@ class ColumnSchema:
         """Return a copy with a different nullability flag."""
         return ColumnSchema(self.name, self.dtype, nullable)
 
-    def __repr__(self):
-        n = '?' if self.nullable else ''
-        return f'{self.name}: {self.dtype.__name__}{n}'
+    def __repr__(self) -> str:
+        n = "?" if self.nullable else ""
+        return f"{self.name}: {self.dtype.__name__}{n}"
 
 
 class LazySchema:
@@ -58,9 +59,9 @@ class LazySchema:
         {'name': <class 'str'>, 'age': <class 'int'>}
     """
 
-    __slots__ = ('_columns',)
+    __slots__ = ("_columns",)
 
-    def __init__(self, columns: dict[str, ColumnSchema] | None = None):
+    def __init__(self, columns: dict[str, ColumnSchema] | None = None) -> None:
         """Initialize a LazySchema.
 
         Args:
@@ -88,10 +89,10 @@ class LazySchema:
     def __len__(self) -> int:
         return len(self._columns)
 
-    def __iter__(self):
+    def __iter__(self) -> Iterator[ColumnSchema]:
         return iter(self._columns.values())
 
-    def __eq__(self, other):
+    def __eq__(self, other: object) -> bool:
         if isinstance(other, LazySchema):
             return self._columns == other._columns
         return NotImplemented
@@ -140,7 +141,7 @@ class LazySchema:
             cols[new_name] = col.with_name(new_name)
         return LazySchema(cols)
 
-    def merge(self, other: LazySchema, suffix: str = 'right_') -> LazySchema:
+    def merge(self, other: LazySchema, suffix: str = "right_") -> LazySchema:
         """Merge two schemas, prefixing duplicate column names.
 
         Args:
@@ -208,7 +209,7 @@ class LazySchema:
         """
         if not rows:
             return cls({n: ColumnSchema(n) for n in columns})
-        sample = rows[:min(1000, len(rows))]
+        sample = rows[: min(1000, len(rows))]
         cols = {}
         for i, name in enumerate(columns):
             dtype = str
@@ -239,7 +240,7 @@ class LazySchema:
         if not data:
             return cls()
         cols = {}
-        sample = data[:min(1000, len(data))]
+        sample = data[: min(1000, len(data))]
         for key in data[0].keys():
             dtype = str
             nullable = False
@@ -252,12 +253,12 @@ class LazySchema:
             cols[key] = ColumnSchema(key, dtype, nullable)
         return cls(cols)
 
-    def __repr__(self):
+    def __repr__(self) -> str:
         if not self._columns:
-            return 'Schema(empty)'
-        lines = [f'  {col}' for col in self._columns.values()]
-        return 'Schema(\n' + '\n'.join(lines) + '\n)'
+            return "Schema(empty)"
+        lines = [f"  {col}" for col in self._columns.values()]
+        return "Schema(\n" + "\n".join(lines) + "\n)"
 
     def _repr_short(self) -> str:
-        parts = [f'{c.name}:{c.dtype.__name__}' for c in self._columns.values()]
-        return '{' + ', '.join(parts) + '}'
+        parts = [f"{c.name}:{c.dtype.__name__}" for c in self._columns.values()]
+        return "{" + ", ".join(parts) + "}"

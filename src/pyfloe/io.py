@@ -5,10 +5,13 @@ import json
 import os
 from collections.abc import Callable, Iterator
 from datetime import datetime
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from .plan import PlanNode, ScanNode
 from .schema import ColumnSchema, LazySchema
+
+if TYPE_CHECKING:
+    from .core import LazyFrame
 
 
 def _infer_type(value: str) -> type:
@@ -29,7 +32,7 @@ def _infer_type(value: str) -> type:
     return str
 
 
-def _cast_value(value: str, dtype: type, dt_fmt: str = None) -> Any:
+def _cast_value(value: str, dtype: type, dt_fmt: str | None = None) -> Any:
     if value == "" or value is None:
         return None
     if dtype is bool:
@@ -80,7 +83,7 @@ def _infer_schema_from_sample(
     from .expr import _detect_datetime_format
 
     n_cols = len(columns)
-    col_types = [type(None)] * n_cols
+    col_types: list[type] = [type(None)] * n_cols
     col_nullable = [False] * n_cols
     dt_formats: list[str | None] = [None] * n_cols
 
@@ -117,8 +120,8 @@ class _FileStreamNode(PlanNode):
         lazy_schema: LazySchema,
         row_factory: Callable[[], Iterator[tuple]],
         source_label: str = "File",
-        row_counter: Callable[[], int] = None,
-    ):
+        row_counter: Callable[[], int] | None = None,
+    ) -> None:
         self._columns = columns
         self._schema = lazy_schema
         self._row_factory = row_factory
@@ -133,12 +136,12 @@ class _FileStreamNode(PlanNode):
 
         return _batched(self._row_factory())
 
-    def fast_count(self):
+    def fast_count(self) -> int | None:
         if self._row_counter is not None:
             return self._row_counter()
         return None
 
-    def _explain_self(self):
+    def _explain_self(self) -> str:
         return f"{self._source_label} [{', '.join(self._columns)}]"
 
 
@@ -234,7 +237,7 @@ def read_csv(
     skip_rows: int = 0,
     quotechar: str = '"',
     cast_types: bool = True,
-):
+) -> LazyFrame:
     """Read a CSV file as a LazyFrame.
 
     Types are inferred from a sample and datetime columns are auto-detected.
@@ -279,7 +282,7 @@ def read_csv(
     return LazyFrame._from_plan(node)
 
 
-def read_tsv(path: str, **kwargs):
+def read_tsv(path: str, **kwargs: Any) -> LazyFrame:
     """Read a TSV (tab-separated) file as a LazyFrame.
 
     Equivalent to ``read_csv(path, delimiter='\\t', ...)``.
@@ -310,7 +313,7 @@ def read_jsonl(
     encoding: str = "utf-8",
     schema_sample_size: int = 100,
     columns: list[str] | None = None,
-):
+) -> LazyFrame:
     """Read a JSON Lines file as a LazyFrame.
 
     Each line is parsed as a JSON object. Schema is inferred from a sample.
@@ -383,7 +386,7 @@ def read_json(
     *,
     encoding: str = "utf-8",
     columns: list[str] | None = None,
-):
+) -> LazyFrame:
     """Read a JSON file containing a top-level array.
 
     Unlike :func:`read_jsonl`, this loads the entire file into memory at once.
@@ -428,7 +431,7 @@ def read_fixed_width(
     schema_sample_size: int = 100,
     strip: bool = True,
     cast_types: bool = True,
-):
+) -> LazyFrame:
     """Read a fixed-width file as a LazyFrame.
 
     Args:
@@ -511,7 +514,7 @@ def read_parquet(
     *,
     columns: list[str] | None = None,
     batch_size: int = 10_000,
-):
+) -> LazyFrame:
     """Read a Parquet file as a LazyFrame (requires pyarrow).
 
     Schema is read from the Parquet file metadata without loading data.
@@ -596,8 +599,8 @@ def read_parquet(
 
 
 def _to_csv_impl(
-    lf, path: str, delimiter: str = ",", header: bool = True, encoding: str = "utf-8"
-):
+    lf: LazyFrame, path: str, delimiter: str = ",", header: bool = True, encoding: str = "utf-8"
+) -> None:
     with open(path, "w", encoding=encoding, newline="") as f:
         writer = csv.writer(f, delimiter=delimiter)
         if header:
@@ -606,7 +609,7 @@ def _to_csv_impl(
             writer.writerows(chunk)
 
 
-def _to_jsonl_impl(lf, path: str, encoding: str = "utf-8"):
+def _to_jsonl_impl(lf: LazyFrame, path: str, encoding: str = "utf-8") -> None:
     cols = lf.columns
     with open(path, "w", encoding=encoding) as f:
         for row in lf._plan.execute():
@@ -614,7 +617,9 @@ def _to_jsonl_impl(lf, path: str, encoding: str = "utf-8"):
             f.write(json.dumps(obj, default=str) + "\n")
 
 
-def _to_json_impl(lf, path: str, encoding: str = "utf-8", indent: int = None):
+def _to_json_impl(
+    lf: LazyFrame, path: str, encoding: str = "utf-8", indent: int | None = None
+) -> None:
     cols = lf.columns
     rows = []
     for row in lf._plan.execute():
@@ -623,7 +628,7 @@ def _to_json_impl(lf, path: str, encoding: str = "utf-8", indent: int = None):
         json.dump(rows, f, default=str, indent=indent)
 
 
-def _to_parquet_impl(lf, path: str, **kwargs):
+def _to_parquet_impl(lf: LazyFrame, path: str, **kwargs: Any) -> None:
     try:
         import pyarrow as pa
         import pyarrow.parquet as pq
