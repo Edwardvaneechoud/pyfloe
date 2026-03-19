@@ -691,6 +691,7 @@ def _to_csv_impl(
 
 
 def _to_jsonl_impl(lf: LazyFrame, path: str, encoding: str = "utf-8") -> None:
+    """Write a LazyFrame to a JSON Lines file, one JSON object per row."""
     path = os.path.expanduser(path)
     cols = lf.columns
     with open(path, "w", encoding=encoding) as f:
@@ -702,6 +703,7 @@ def _to_jsonl_impl(lf: LazyFrame, path: str, encoding: str = "utf-8") -> None:
 def _to_json_impl(
     lf: LazyFrame, path: str, encoding: str = "utf-8", indent: int | None = None
 ) -> None:
+    """Write a LazyFrame to a JSON file as a top-level array."""
     path = os.path.expanduser(path)
     cols = lf.columns
     rows = []
@@ -712,6 +714,7 @@ def _to_json_impl(
 
 
 def _to_parquet_impl(lf: LazyFrame, path: str, **kwargs: Any) -> None:
+    """Write a LazyFrame to a Parquet file (requires pyarrow)."""
     try:
         import pyarrow as pa
         import pyarrow.parquet as pq
