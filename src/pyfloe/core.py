@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from collections.abc import Callable, Iterator
+from collections.abc import Callable, Iterable, Iterator
 from itertools import islice
 from typing import (
     Any,
@@ -129,13 +129,16 @@ class LazyFrame:
     __slots__ = ("_plan", "_materialized", "_name", "_optimized")
 
     def __init__(
-        self, raw_data: list[dict] | list | None = None, *, name: str | None = None
+        self,
+        raw_data: list[dict] | list | dict | Iterable | None = None,
+        *,
+        name: str | None = None,
     ) -> None:
         """Create a LazyFrame from in-memory data.
 
         Args:
             raw_data: Input data as a list of dicts, list of tuples,
-                list of objects with ``__dict__``, or a dict of columns.
+                list of objects with ``__dict__``, a dict of columns, or an iterable.
             name: Optional name for the LazyFrame.
 
         Examples:
@@ -189,9 +192,14 @@ class LazyFrame:
                 cols = ["value"]
                 rows = [(v,) for v in raw_data]
             self._plan = ScanNode(rows, cols)
+        elif hasattr(raw_data, "__iter__") or hasattr(raw_data, "__next__"):
+            raw_data = list(raw_data)
+            self.__init__(raw_data, name=name)
+            return
         else:
             raise ValueError(
-                "Provide a list of dicts, list of tuples, list of scalars, or a dict of columns"
+                "Provide a list of dicts, list of tuples, list of scalars, "
+                "a dict of columns, or an iterable"
             )
 
     @classmethod
@@ -251,7 +259,7 @@ class LazyFrame:
 
         Examples:
             >>> lf = LazyFrame([{"a": 1}]).filter(col("a") > 0).select("a")
-            >>> print(lf.explain())  # doctest: +SKIP
+            >>> print(lf.explain())
             Project [a]
               Filter [(col("a") > 0)]
                 Scan [a] (1 rows)
@@ -539,7 +547,7 @@ class LazyFrame:
             >>> orders = LazyFrame([{"id": 1, "cust": 101}, {"id": 2, "cust": 102}])
             >>> customers = LazyFrame([{"cust": 101, "name": "Alice"}])
             >>> orders.join(customers, on="cust", how="left").to_pylist()
-            [{'id': 1, 'cust': 101, 'cust': 101, 'name': 'Alice'}, {'id': 2, 'cust': 102, 'cust': None, 'name': None}]
+            [{'id': 1, 'cust': 101, 'right_cust': 101, 'name': 'Alice'}, {'id': 2, 'cust': 102, 'right_cust': None, 'name': None}]
 
             Different key names on each side:
 
@@ -848,8 +856,9 @@ class LazyFrame:
             >>> lf = LazyFrame([{"x": 1}, {"x": 2}]).filter(col("x") > 0)
             >>> lf.is_materialized
             False
-            >>> lf.collect()  # doctest: +SKIP
+            >>> lf.collect()  # doctest: +ELLIPSIS
             LazyFrame [2 rows × 1 cols] (materialized)
+            ...
             >>> lf.is_materialized
             True
         """
@@ -956,7 +965,7 @@ class LazyFrame:
 
         Examples:
             >>> lf = LazyFrame([{"name": "Alice", "age": 30}])
-            >>> lf.to_csv("/tmp/output.csv")  # doctest: +SKIP
+            >>> lf.to_csv("output.csv")
         """
         from .io import _to_csv_impl
 
@@ -1070,7 +1079,7 @@ class LazyFrame:
 
         Examples:
             >>> lf = LazyFrame([{"name": "Alice", "age": 30}, {"name": "Bob", "age": 25}])
-            >>> lf.display()  # doctest: +SKIP
+            >>> lf.display()  # doctest: +NORMALIZE_WHITESPACE
             name  | age
             ------+----
             Alice | 30
@@ -1150,8 +1159,9 @@ class LazyFrame:
             >>> class Order(TypedDict):
             ...     order_id: int
             ...     amount: float
-            >>> LazyFrame([{"order_id": 1, "amount": 9.9}]).validate(Order)  # doctest: +SKIP
+            >>> LazyFrame([{"order_id": 1, "amount": 9.9}]).validate(Order)  # doctest: +ELLIPSIS
             LazyFrame [1 rows × 2 cols]
+            ...
         """
         hints = get_type_hints(row_type)
         schema = self.schema

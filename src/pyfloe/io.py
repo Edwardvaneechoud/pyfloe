@@ -329,11 +329,9 @@ def read_csv(
 
     Examples:
         >>> import pyfloe as pf
-        >>> lf = pf.read_csv("orders.csv")  # doctest: +SKIP
-        >>> lf.schema.dtypes  # doctest: +SKIP
-        {'order_id': <class 'int'>, 'amount': <class 'float'>, ...}
-        >>> lf.filter(pf.col("amount") > 100).to_pylist()  # doctest: +SKIP
-        [{'order_id': 1, 'amount': 250.0, ...}, ...]
+        >>> lf = pf.read_csv("orders.csv")
+        >>> lf.filter(pf.col("amount") > 200).select("order_id", "amount").to_pylist()
+        [{'order_id': 1, 'amount': 250.0}, {'order_id': 6, 'amount': 310.0}]
     """
     from .core import LazyFrame
 
@@ -366,9 +364,9 @@ def read_tsv(path: str, **kwargs: Any) -> LazyFrame:
 
     Examples:
         >>> import pyfloe as pf
-        >>> lf = pf.read_tsv("data.tsv")  # doctest: +SKIP
-        >>> lf.to_pylist()  # doctest: +SKIP
-        [{'name': 'Alice', 'score': 95}, ...]
+        >>> lf = pf.read_tsv("students.tsv")
+        >>> lf.select("name", "score").head(2).to_pylist()
+        [{'name': 'Alice', 'score': 95}, {'name': 'Bob', 'score': 82}]
     """
     kwargs.setdefault("delimiter", "\t")
     from .core import LazyFrame
@@ -399,13 +397,15 @@ def read_jsonl(
 
     Examples:
         >>> import pyfloe as pf
-        >>> lf = pf.read_jsonl("events.jsonl")  # doctest: +SKIP
-        >>> lf.filter(pf.col("event") == "click").to_pylist()  # doctest: +SKIP
-        [{'event': 'click', 'user_id': 42, ...}, ...]
+        >>> lf = pf.read_jsonl("events.jsonl")
+        >>> lf.filter(pf.col("event") == "click").select("event", "user_id").to_pylist()
+        [{'event': 'click', 'user_id': 1}, {'event': 'click', 'user_id': 1}]
 
         Read only specific columns:
 
-        >>> lf = pf.read_jsonl("events.jsonl", columns=["event", "user_id"])  # doctest: +SKIP
+        >>> lf = pf.read_jsonl("events.jsonl", columns=["event", "user_id"])
+        >>> lf.head(2).to_pylist()
+        [{'event': 'click', 'user_id': 1}, {'event': 'view', 'user_id': 2}]
     """
     from .core import LazyFrame
 
@@ -475,9 +475,9 @@ def read_json(
 
     Examples:
         >>> import pyfloe as pf
-        >>> lf = pf.read_json("cities.json")  # doctest: +SKIP
-        >>> lf.to_pylist()  # doctest: +SKIP
-        [{'city': 'NYC', 'pop': 8336817}, ...]
+        >>> lf = pf.read_json("cities.json")
+        >>> lf.to_pylist()
+        [{'city': 'NYC', 'pop': 8336817}, {'city': 'LA', 'pop': 3979576}, {'city': 'Chicago', 'pop': 2693976}]
     """
     from .core import LazyFrame
 
@@ -521,9 +521,9 @@ def read_fixed_width(
 
     Examples:
         >>> import pyfloe as pf
-        >>> lf = pf.read_fixed_width("people.txt", widths=[10, 4, 14], has_header=True)  # doctest: +SKIP
-        >>> lf.to_pylist()  # doctest: +SKIP
-        [{'NAME': 'Alice', 'AGE': 30, 'CITY': 'New York'}, ...]
+        >>> lf = pf.read_fixed_width("people.txt", widths=[10, 4, 14], has_header=True)
+        >>> lf.head(2).to_pylist()
+        [{'NAME': 'Alice', 'AGE': 30, 'CITY': 'New York'}, {'NAME': 'Bob', 'AGE': 25, 'CITY': 'Los Angeles'}]
     """
     from .core import LazyFrame
 
@@ -608,11 +608,7 @@ def read_parquet(
         >>> import pyfloe as pf
         >>> lf = pf.read_parquet("data.parquet")  # doctest: +SKIP
         >>> lf.filter(pf.col("score") > 85).select("name", "score").to_pylist()  # doctest: +SKIP
-        [{'name': 'Alice', 'score': 95.5}, ...]
-
-        Read only specific columns:
-
-        >>> lf = pf.read_parquet("data.parquet", columns=["id", "score"])  # doctest: +SKIP
+        [{'name': 'Alice', 'score': 95.5}, {'name': 'Diana', 'score': 91.2}, {'name': 'Eve', 'score': 88.7}]
     """
     from .core import LazyFrame
 
