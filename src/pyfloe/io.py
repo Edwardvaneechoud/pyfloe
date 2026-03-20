@@ -15,6 +15,12 @@ if TYPE_CHECKING:
 
 
 def _infer_type(value: str) -> type:
+    """Infer the Python type of a single string value.
+
+    Attempts to parse *value* as bool, int, float (in that order) and
+    returns the first matching type.  Returns ``str`` as a fallback.
+    Empty or ``None`` values yield ``type(None)``.
+    """
     if value == "" or value is None:
         return type(None)
     if value.lower() in ("true", "false"):
@@ -33,6 +39,11 @@ def _infer_type(value: str) -> type:
 
 
 def _cast_value(value: str, dtype: type, dt_fmt: str | None = None) -> Any:
+    """Cast a raw string *value* to the given *dtype*.
+
+    Returns ``None`` for empty strings.  Uses *dt_fmt* when casting to
+    ``datetime``.  Falls back to the original string on parse errors.
+    """
     if value == "" or value is None:
         return None
     if dtype is bool:
@@ -63,6 +74,11 @@ def _cast_value(value: str, dtype: type, dt_fmt: str | None = None) -> Any:
 
 
 def _promote_types(t1: type, t2: type) -> type:
+    """Return the least general type that can represent both *t1* and *t2*.
+
+    Rules: ``None`` is transparent, ``int`` + ``float`` promotes to
+    ``float``, and any other mismatch falls back to ``str``.
+    """
     if t1 is t2:
         return t1
     if t1 is type(None):
@@ -80,6 +96,13 @@ def _infer_schema_from_sample(
     columns: list[str],
     sample_rows: list[list[str]],
 ) -> tuple[LazySchema, list[type], list[str | None]]:
+    """Infer a ``LazySchema`` and per-column types from sample rows.
+
+    Returns a tuple of ``(schema, col_types, dt_formats)`` where
+    *col_types* is the inferred Python type per column and *dt_formats*
+    holds the ``strptime`` format string for datetime columns (or
+    ``None`` for non-datetime columns).
+    """
     from .expr import _detect_datetime_format
 
     n_cols = len(columns)
@@ -114,6 +137,13 @@ def _infer_schema_from_sample(
 
 
 class _FileStreamNode(PlanNode):
+    """Plan node that lazily streams rows from a file.
+
+    Wraps a *row_factory* callable that opens and reads the file on
+    each execution, and an optional *row_counter* for fast ``count()``
+    without full parsing.
+    """
+
     def __init__(
         self,
         columns: list[str],
@@ -145,6 +175,48 @@ class _FileStreamNode(PlanNode):
         return f"{self._source_label} [{', '.join(self._columns)}]"
 
 
+def _count_lines(
+    path: str, quotechar: str, encoding: str, has_header: bool, skip_rows: int
+) -> int:
+    """Count data rows in a delimited file without parsing field values.
+
+    Reads the file in binary mode in 1 MB chunks and counts newlines
+    that appear outside quoted regions.  When a chunk contains no quote
+    characters the count is performed entirely at C level via
+    ``bytes.count``, making it significantly faster than iterating with
+    ``csv.reader``.
+
+    Args:
+        path: Absolute path to the file.
+        quotechar: The quote character used in the file.
+        encoding: File encoding (used to encode *quotechar* to bytes).
+        has_header: Whether the first row is a header (skipped if True).
+        skip_rows: Number of additional leading rows to skip.
+
+    Returns:
+        The number of data rows in the file.
+    """
+    n = 0
+    in_quote = False
+    qb = quotechar.encode(encoding)
+    with open(path, "rb") as f:
+        if has_header:
+            f.readline()
+        for _ in range(skip_rows):
+            f.readline()
+        while chunk := f.read(1 << 20):
+            if not in_quote and qb not in chunk:
+                n += chunk.count(b"\n")
+            else:
+                parts = chunk.split(qb)
+                for i, part in enumerate(parts):
+                    outside = (i % 2 == 0) != in_quote
+                    if outside:
+                        n += part.count(b"\n")
+                in_quote = (len(parts) % 2 == 0) != in_quote
+    return n
+
+
 def _read_delimited(
     path: str,
     delimiter: str = ",",
@@ -157,6 +229,12 @@ def _read_delimited(
     cast_types: bool = True,
     source_label: str = "CSV",
 ) -> _FileStreamNode:
+    """Build a ``_FileStreamNode`` for a delimited text file.
+
+    Opens the file once to read the header and a sample of rows for
+    schema inference, then returns a lazy node whose *row_factory*
+    re-opens the file on each execution.
+    """
     path = os.path.expanduser(path)
     with open(path, encoding=encoding, newline="") as f:
         reader = csv.reader(f, delimiter=delimiter, quotechar=quotechar)
@@ -207,16 +285,7 @@ def _read_delimited(
                     yield tuple(row[i] for i in range(n_cols))
 
     def count_rows() -> int:
-        n = 0
-        with open(path, encoding=encoding, newline="") as f:
-            reader = csv.reader(f, delimiter=delimiter, quotechar=quotechar)
-            for _ in range(skip_rows):
-                next(reader, None)
-            if has_header:
-                next(reader, None)
-            for _ in reader:
-                n += 1
-        return n
+        return _count_lines(path, quotechar, encoding, has_header, skip_rows)
 
     return _FileStreamNode(
         col_names,
@@ -260,11 +329,9 @@ def read_csv(
 
     Examples:
         >>> import pyfloe as pf
-        >>> lf = pf.read_csv("orders.csv")  # doctest: +SKIP
-        >>> lf.schema.dtypes  # doctest: +SKIP
-        {'order_id': <class 'int'>, 'amount': <class 'float'>, ...}
-        >>> lf.filter(pf.col("amount") > 100).to_pylist()  # doctest: +SKIP
-        [{'order_id': 1, 'amount': 250.0, ...}, ...]
+        >>> lf = pf.read_csv("orders.csv")
+        >>> lf.filter(pf.col("amount") > 200).select("order_id", "amount").to_pylist()
+        [{'order_id': 1, 'amount': 250.0}, {'order_id': 6, 'amount': 310.0}]
     """
     from .core import LazyFrame
 
@@ -297,9 +364,9 @@ def read_tsv(path: str, **kwargs: Any) -> LazyFrame:
 
     Examples:
         >>> import pyfloe as pf
-        >>> lf = pf.read_tsv("data.tsv")  # doctest: +SKIP
-        >>> lf.to_pylist()  # doctest: +SKIP
-        [{'name': 'Alice', 'score': 95}, ...]
+        >>> lf = pf.read_tsv("students.tsv")
+        >>> lf.select("name", "score").head(2).to_pylist()
+        [{'name': 'Alice', 'score': 95}, {'name': 'Bob', 'score': 82}]
     """
     kwargs.setdefault("delimiter", "\t")
     from .core import LazyFrame
@@ -330,13 +397,15 @@ def read_jsonl(
 
     Examples:
         >>> import pyfloe as pf
-        >>> lf = pf.read_jsonl("events.jsonl")  # doctest: +SKIP
-        >>> lf.filter(pf.col("event") == "click").to_pylist()  # doctest: +SKIP
-        [{'event': 'click', 'user_id': 42, ...}, ...]
+        >>> lf = pf.read_jsonl("events.jsonl")
+        >>> lf.filter(pf.col("event") == "click").select("event", "user_id").to_pylist()
+        [{'event': 'click', 'user_id': 1}, {'event': 'click', 'user_id': 1}]
 
         Read only specific columns:
 
-        >>> lf = pf.read_jsonl("events.jsonl", columns=["event", "user_id"])  # doctest: +SKIP
+        >>> lf = pf.read_jsonl("events.jsonl", columns=["event", "user_id"])
+        >>> lf.head(2).to_pylist()
+        [{'event': 'click', 'user_id': 1}, {'event': 'view', 'user_id': 2}]
     """
     from .core import LazyFrame
 
@@ -406,9 +475,9 @@ def read_json(
 
     Examples:
         >>> import pyfloe as pf
-        >>> lf = pf.read_json("cities.json")  # doctest: +SKIP
-        >>> lf.to_pylist()  # doctest: +SKIP
-        [{'city': 'NYC', 'pop': 8336817}, ...]
+        >>> lf = pf.read_json("cities.json")
+        >>> lf.to_pylist()
+        [{'city': 'NYC', 'pop': 8336817}, {'city': 'LA', 'pop': 3979576}, {'city': 'Chicago', 'pop': 2693976}]
     """
     from .core import LazyFrame
 
@@ -452,9 +521,9 @@ def read_fixed_width(
 
     Examples:
         >>> import pyfloe as pf
-        >>> lf = pf.read_fixed_width("people.txt", widths=[10, 4, 14], has_header=True)  # doctest: +SKIP
-        >>> lf.to_pylist()  # doctest: +SKIP
-        [{'NAME': 'Alice', 'AGE': 30, 'CITY': 'New York'}, ...]
+        >>> lf = pf.read_fixed_width("people.txt", widths=[10, 4, 14], has_header=True)
+        >>> lf.head(2).to_pylist()
+        [{'NAME': 'Alice', 'AGE': 30, 'CITY': 'New York'}, {'NAME': 'Bob', 'AGE': 25, 'CITY': 'Los Angeles'}]
     """
     from .core import LazyFrame
 
@@ -539,11 +608,7 @@ def read_parquet(
         >>> import pyfloe as pf
         >>> lf = pf.read_parquet("data.parquet")  # doctest: +SKIP
         >>> lf.filter(pf.col("score") > 85).select("name", "score").to_pylist()  # doctest: +SKIP
-        [{'name': 'Alice', 'score': 95.5}, ...]
-
-        Read only specific columns:
-
-        >>> lf = pf.read_parquet("data.parquet", columns=["id", "score"])  # doctest: +SKIP
+        [{'name': 'Alice', 'score': 95.5}, {'name': 'Diana', 'score': 91.2}, {'name': 'Eve', 'score': 88.7}]
     """
     from .core import LazyFrame
 
@@ -607,6 +672,11 @@ def read_parquet(
 def _to_csv_impl(
     lf: LazyFrame, path: str, delimiter: str = ",", header: bool = True, encoding: str = "utf-8"
 ) -> None:
+    """Write a LazyFrame to a delimited text file.
+
+    Streams batches from the plan so the full dataset is never held in
+    memory at once.
+    """
     path = os.path.expanduser(path)
     with open(path, "w", encoding=encoding, newline="") as f:
         writer = csv.writer(f, delimiter=delimiter)
@@ -617,6 +687,7 @@ def _to_csv_impl(
 
 
 def _to_jsonl_impl(lf: LazyFrame, path: str, encoding: str = "utf-8") -> None:
+    """Write a LazyFrame to a JSON Lines file, one JSON object per row."""
     path = os.path.expanduser(path)
     cols = lf.columns
     with open(path, "w", encoding=encoding) as f:
@@ -628,6 +699,7 @@ def _to_jsonl_impl(lf: LazyFrame, path: str, encoding: str = "utf-8") -> None:
 def _to_json_impl(
     lf: LazyFrame, path: str, encoding: str = "utf-8", indent: int | None = None
 ) -> None:
+    """Write a LazyFrame to a JSON file as a top-level array."""
     path = os.path.expanduser(path)
     cols = lf.columns
     rows = []
@@ -638,6 +710,7 @@ def _to_json_impl(
 
 
 def _to_parquet_impl(lf: LazyFrame, path: str, **kwargs: Any) -> None:
+    """Write a LazyFrame to a Parquet file (requires pyarrow)."""
     try:
         import pyarrow as pa
         import pyarrow.parquet as pq

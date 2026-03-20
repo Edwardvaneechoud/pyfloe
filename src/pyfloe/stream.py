@@ -52,7 +52,7 @@ def from_iter(
 
     Args:
         source: An iterable, generator, or zero-argument callable that returns
-            an iterable. Items can be dicts, tuples, or objects with ``__dict__``.
+            an iterable. Items can be dicts, tuples, scalars, or objects with ``__dict__``.
         columns: Override column names.
         dtypes: Override column types as ``{name: type}`` mapping.
         schema: Explicit LazySchema to use instead of inferring.
@@ -183,10 +183,19 @@ def _infer_from_sample(
                 schema = LazySchema({c: ColumnSchema(c, dtypes.get(c, str)) for c in columns})
             else:
                 schema = LazySchema.from_dicts(dicts)
+    elif isinstance(first, (int, float, str, bool, type(None))):
+        item_type = "scalar"
+        if columns is None:
+            columns = ["value"]
+        if schema is None:
+            if dtypes:
+                schema = LazySchema({c: ColumnSchema(c, dtypes.get(c, str)) for c in columns})
+            else:
+                schema = LazySchema.from_data(columns, [(v,) for v in peeked])
     else:
         raise ValueError(
             f"Cannot infer schema from items of type {type(first)}. "
-            f"Items must be dicts, tuples, or objects with __dict__."
+            f"Items must be dicts, tuples, scalars, or objects with __dict__."
         )
 
     return columns, schema, item_type
@@ -203,6 +212,9 @@ def _convert_iter(it: Iterable, columns: list[str], item_type: str) -> Iterator[
         for obj in it:
             d = obj.__dict__
             yield tuple(d.get(c) for c in columns)
+    elif item_type == "scalar":
+        for obj in it:
+            yield (obj,)
 
 
 def from_chunks(
@@ -404,7 +416,7 @@ class Stream:
             >>> def gen():
             ...     for i in range(10):
             ...         yield {"x": i, "y": i * 10}
-            >>> Stream.from_iter(gen()).filter(col("y") > 50).to_pylist()  # doctest: +SKIP
+            >>> Stream.from_iter(gen()).filter(col("y") > 50).to_pylist()
             [{'x': 6, 'y': 60}, {'x': 7, 'y': 70}, {'x': 8, 'y': 80}, {'x': 9, 'y': 90}]
         """
         is_factory = callable(source) and not isinstance(source, (list, tuple))
@@ -460,8 +472,8 @@ class Stream:
             A new Stream.
 
         Examples:
-            >>> Stream.from_csv("orders.csv").filter(col("amount") > 100).to_pylist()  # doctest: +SKIP
-            [{'order_id': 1, 'amount': 250.0, ...}, ...]
+            >>> Stream.from_csv("orders.csv").filter(col("amount") > 200).select("order_id", "amount").to_pylist()
+            [{'order_id': 1, 'amount': 250.0}, {'order_id': 6, 'amount': 310.0}]
         """
         from .io import _read_delimited
 
@@ -478,7 +490,9 @@ class Stream:
             A new Stream with the filter applied.
 
         Examples:
-            >>> stream.filter(col("amount") > 100)  # doctest: +SKIP
+            >>> stream = Stream.from_iter([{"amount": 50}, {"amount": 200}])
+            >>> stream.filter(col("amount") > 100).to_pylist()
+            [{'amount': 200}]
         """
         return Stream(
             self._source_factory,
@@ -505,8 +519,12 @@ class Stream:
             A new Stream with the additional column.
 
         Examples:
-            >>> stream.with_column("total", col("x") + col("y"))  # doctest: +SKIP
-            >>> stream.with_column((col("x") + col("y")).alias("total"))  # doctest: +SKIP
+            >>> stream = Stream.from_iter([{"x": 1, "y": 2}, {"x": 3, "y": 4}])
+            >>> stream.with_column("total", col("x") + col("y")).to_pylist()
+            [{'x': 1, 'y': 2, 'total': 3}, {'x': 3, 'y': 4, 'total': 7}]
+            >>> stream = Stream.from_iter([{"x": 1, "y": 2}])
+            >>> stream.with_column((col("x") + col("y")).alias("total")).to_pylist()
+            [{'x': 1, 'y': 2, 'total': 3}]
         """
         if isinstance(name_or_expr, Expr):
             resolved_expr = name_or_expr
@@ -546,7 +564,9 @@ class Stream:
             A new Stream with only the selected columns.
 
         Examples:
-            >>> stream.select("id", "value")  # doctest: +SKIP
+            >>> stream = Stream.from_iter([{"id": 1, "value": 10, "extra": "x"}])
+            >>> stream.select("id", "value").to_pylist()
+            [{'id': 1, 'value': 10}]
         """
         new_schema = self._schema.select(list(columns))
         return Stream(
@@ -651,8 +671,11 @@ class Stream:
         """Execute the pipeline and return a materialized LazyFrame.
 
         Examples:
-            >>> lf = Stream.from_iter(gen()).filter(col("x") > 5).collect()  # doctest: +SKIP
-            >>> isinstance(lf, LazyFrame)  # doctest: +SKIP
+            >>> def gen():
+            ...     for i in range(10):
+            ...         yield {"x": i}
+            >>> lf = Stream.from_iter(gen()).filter(col("x") > 5).collect()
+            >>> isinstance(lf, LazyFrame)
             True
         """
         from .core import LazyFrame
@@ -665,8 +688,11 @@ class Stream:
         """Execute the pipeline and return results as a list of dicts.
 
         Examples:
-            >>> Stream.from_iter(gen()).filter(col("x") > 5).to_pylist()  # doctest: +SKIP
-            [{'x': 6}, {'x': 7}, ...]
+            >>> def gen():
+            ...     for i in range(8):
+            ...         yield {"x": i}
+            >>> Stream.from_iter(gen()).filter(col("x") > 5).to_pylist()
+            [{'x': 6}, {'x': 7}]
         """
         _, out_cols = self._build_processor()
         return [{out_cols[i]: v for i, v in enumerate(row)} for row in self._execute()]
@@ -685,7 +711,7 @@ class Stream:
             encoding: File encoding.
 
         Examples:
-            >>> Stream.from_iter(gen()).filter(col("score") > 50).to_csv("/tmp/out.csv")  # doctest: +SKIP
+            >>> Stream.from_iter([{"score": 40}, {"score": 80}]).filter(col("score") > 50).to_csv("out.csv")
         """
         path = os.path.expanduser(path)
         _, out_cols = self._build_processor()
@@ -704,7 +730,7 @@ class Stream:
             encoding: File encoding.
 
         Examples:
-            >>> Stream.from_iter(gen()).filter(col("ts") > 10).to_jsonl("/tmp/out.jsonl")  # doctest: +SKIP
+            >>> Stream.from_iter([{"ts": 5}, {"ts": 20}]).filter(col("ts") > 10).to_jsonl("out.jsonl")
         """
         path = os.path.expanduser(path)
         _, out_cols = self._build_processor()
@@ -721,7 +747,9 @@ class Stream:
 
         Examples:
             >>> collected = []
-            >>> Stream.from_iter(gen()).foreach(lambda row: collected.append(row))  # doctest: +SKIP
+            >>> Stream.from_iter([{"x": 1}, {"x": 2}]).foreach(lambda row: collected.append(row))
+            >>> collected
+            [{'x': 1}, {'x': 2}]
         """
         _, out_cols = self._build_processor()
         for row in self._execute():
@@ -732,7 +760,10 @@ class Stream:
         """Execute the pipeline and return the total row count.
 
         Examples:
-            >>> Stream.from_iter(gen()).filter(col("x") > 500).count()  # doctest: +SKIP
+            >>> def gen():
+            ...     for i in range(1000):
+            ...         yield {"x": i}
+            >>> Stream.from_iter(gen()).filter(col("x") > 500).count()
             499
         """
         return sum(1 for _ in self._execute())
@@ -744,7 +775,10 @@ class Stream:
             n: Number of rows to return.
 
         Examples:
-            >>> Stream.from_iter(gen()).take(3)  # doctest: +SKIP
+            >>> def gen():
+            ...     for i in range(10):
+            ...         yield {"x": i}
+            >>> Stream.from_iter(gen()).take(3)
             [{'x': 0}, {'x': 1}, {'x': 2}]
         """
         _, out_cols = self._build_processor()

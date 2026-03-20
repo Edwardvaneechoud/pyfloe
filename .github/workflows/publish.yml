@@ -32,7 +32,7 @@ jobs:
         run: uv run ruff check src/ tests/
 
       - name: Run tests
-        run: uv run pytest tests/ -v
+        run: uv run pytest -v
 
   publish:
     needs: test

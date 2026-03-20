@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from collections.abc import Callable, Iterator
+from collections.abc import Callable, Iterable, Iterator
 from itertools import islice
 from typing import (
     Any,
@@ -17,6 +17,7 @@ from .plan import (
     ExplodeNode,
     FilterNode,
     JoinNode,
+    LimitNode,
     Optimizer,
     PivotNode,
     PlanNode,
@@ -128,13 +129,16 @@ class LazyFrame:
     __slots__ = ("_plan", "_materialized", "_name", "_optimized")
 
     def __init__(
-        self, raw_data: list[dict] | list | None = None, *, name: str | None = None
+        self,
+        raw_data: list[dict] | list | dict | Iterable | None = None,
+        *,
+        name: str | None = None,
     ) -> None:
         """Create a LazyFrame from in-memory data.
 
         Args:
             raw_data: Input data as a list of dicts, list of tuples,
-                list of objects with ``__dict__``, or a dict of columns.
+                list of objects with ``__dict__``, a dict of columns, or an iterable.
             name: Optional name for the LazyFrame.
 
         Examples:
@@ -188,9 +192,14 @@ class LazyFrame:
                 cols = ["value"]
                 rows = [(v,) for v in raw_data]
             self._plan = ScanNode(rows, cols)
+        elif hasattr(raw_data, "__iter__") or hasattr(raw_data, "__next__"):
+            raw_data = list(raw_data)
+            self.__init__(raw_data, name=name)
+            return
         else:
             raise ValueError(
-                "Provide a list of dicts, list of tuples, list of scalars, or a dict of columns"
+                "Provide a list of dicts, list of tuples, list of scalars, "
+                "a dict of columns, or an iterable"
             )
 
     @classmethod
@@ -250,7 +259,7 @@ class LazyFrame:
 
         Examples:
             >>> lf = LazyFrame([{"a": 1}]).filter(col("a") > 0).select("a")
-            >>> print(lf.explain())  # doctest: +SKIP
+            >>> print(lf.explain())
             Project [a]
               Filter [(col("a") > 0)]
                 Scan [a] (1 rows)
@@ -538,7 +547,7 @@ class LazyFrame:
             >>> orders = LazyFrame([{"id": 1, "cust": 101}, {"id": 2, "cust": 102}])
             >>> customers = LazyFrame([{"cust": 101, "name": "Alice"}])
             >>> orders.join(customers, on="cust", how="left").to_pylist()
-            [{'id': 1, 'cust': 101, 'cust': 101, 'name': 'Alice'}, {'id': 2, 'cust': 102, 'cust': None, 'name': None}]
+            [{'id': 1, 'cust': 101, 'right_cust': 101, 'name': 'Alice'}, {'id': 2, 'cust': 102, 'right_cust': None, 'name': None}]
 
             Different key names on each side:
 
@@ -778,24 +787,24 @@ class LazyFrame:
             columns = [columns]
         return self.select(*columns)
 
-    def head(self, n: int = 5, optimize: bool = True) -> LazyFrame:
-        """Return the first n rows as a new materialized LazyFrame.
+    def head(self, n: int = 5) -> LazyFrame:
+        """Return a lazy view of the first *n* rows.
+
+        The upstream plan is **not** executed until the result is
+        materialised (e.g. via ``collect``, ``to_pylist``, etc.).
 
         Args:
-            n: Number of rows.
-            optimize: If True, run the query optimizer first.
+            n: Maximum number of rows to return.
 
         Returns:
-            A new materialized LazyFrame containing the first *n* rows.
+            A new LazyFrame with a ``Limit`` node in the plan.
 
         Examples:
             >>> lf = LazyFrame([{"x": i} for i in range(100)])
             >>> lf.head(3).to_pylist()
             [{'x': 0}, {'x': 1}, {'x': 2}]
         """
-        plan = self._exec_plan if optimize else self._plan
-        rows = list(islice(plan.execute(), n))
-        return LazyFrame._from_plan(ScanNode(rows, self.columns, self.schema))
+        return LazyFrame._from_plan(LimitNode(self._plan, n))
 
     def optimize(self) -> LazyFrame:
         """Return a new LazyFrame with an optimized query plan.
@@ -847,8 +856,9 @@ class LazyFrame:
             >>> lf = LazyFrame([{"x": 1}, {"x": 2}]).filter(col("x") > 0)
             >>> lf.is_materialized
             False
-            >>> lf.collect()  # doctest: +SKIP
+            >>> lf.collect()  # doctest: +ELLIPSIS
             LazyFrame [2 rows × 1 cols] (materialized)
+            ...
             >>> lf.is_materialized
             True
         """
@@ -955,7 +965,7 @@ class LazyFrame:
 
         Examples:
             >>> lf = LazyFrame([{"name": "Alice", "age": 30}])
-            >>> lf.to_csv("/tmp/output.csv")  # doctest: +SKIP
+            >>> lf.to_csv("output.csv")
         """
         from .io import _to_csv_impl
 
@@ -1019,10 +1029,7 @@ class LazyFrame:
         n = self._known_length
         if n is not None:
             return n
-        raise TypeError(
-            "len() requires materialized data. "
-            "Call .collect() first, or use .head(n) to peek at rows."
-        )
+        return len(self.collect().raw_data)
 
     def __getitem__(self, key: str | int | slice) -> LazyFrame | dict[str, Any]:
         if isinstance(key, str):
@@ -1072,7 +1079,7 @@ class LazyFrame:
 
         Examples:
             >>> lf = LazyFrame([{"name": "Alice", "age": 30}, {"name": "Bob", "age": 25}])
-            >>> lf.display()  # doctest: +SKIP
+            >>> lf.display()  # doctest: +NORMALIZE_WHITESPACE
             name  | age
             ------+----
             Alice | 30
@@ -1152,8 +1159,9 @@ class LazyFrame:
             >>> class Order(TypedDict):
             ...     order_id: int
             ...     amount: float
-            >>> LazyFrame([{"order_id": 1, "amount": 9.9}]).validate(Order)  # doctest: +SKIP
+            >>> LazyFrame([{"order_id": 1, "amount": 9.9}]).validate(Order)  # doctest: +ELLIPSIS
             LazyFrame [1 rows × 2 cols]
+            ...
         """
         hints = get_type_hints(row_type)
         schema = self.schema
@@ -1216,8 +1224,8 @@ class TypedLazyFrame(LazyFrame, Generic[T]):
         result = super().sort(*args, **kwargs)
         return TypedLazyFrame._from_typed(result._plan, self._row_type, result._name)
 
-    def head(self, n: int = 5, optimize: bool = True) -> TypedLazyFrame[T]:
-        result = super().head(n, optimize)
+    def head(self, n: int = 5) -> TypedLazyFrame[T]:
+        result = super().head(n)
         return TypedLazyFrame._from_typed(result._plan, self._row_type, result._name)
 
     def __repr__(self) -> str:

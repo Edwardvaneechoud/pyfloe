@@ -1,4 +1,5 @@
 """Tests for streaming data into LazyFrame."""
+
 import os
 import tempfile
 import tracemalloc
@@ -7,6 +8,7 @@ from pyfloe import LazyFrame, Stream, col, from_chunks, from_iter, when
 
 # ═══════════════════════════════════════════════════════════
 # ═══════════════════════════════════════════════════════════
+
 
 def test_from_iter_with_dict_generator():
     def gen():
@@ -19,6 +21,7 @@ def test_from_iter_with_dict_generator():
     assert len(result) == 100
     assert result[0] == {"id": 0, "value": 0.0}
 
+
 def test_from_iter_schema_inference_from_dicts():
     def gen():
         for i in range(100):
@@ -30,17 +33,20 @@ def test_from_iter_schema_inference_from_dicts():
     assert s.dtypes["value"] is float
     assert s.dtypes["name"] is str
 
+
 def test_from_iter_with_tuple_generator_explicit_schema():
     def gen():
         for i in range(50):
             yield (i, f"row_{i}", i * 2.0)
 
-    lf = from_iter(gen(), columns=["id", "name", "score"],
-                   dtypes={"id": int, "name": str, "score": float})
+    lf = from_iter(
+        gen(), columns=["id", "name", "score"], dtypes={"id": int, "name": str, "score": float}
+    )
     assert lf.columns == ["id", "name", "score"]
     result = lf.to_pylist()
     assert len(result) == 50
     assert result[0] == {"id": 0, "name": "row_0", "score": 0.0}
+
 
 def test_from_iter_with_objects():
     class Item:
@@ -53,6 +59,7 @@ def test_from_iter_with_objects():
     assert lf.columns == ["x", "y"]
     result = lf.to_pylist()
     assert len(result) == 3
+
 
 def test_from_iter_is_lazy():
     call_count = [0]
@@ -67,22 +74,20 @@ def test_from_iter_is_lazy():
     assert call_count[0] == 10
     assert not lf.is_materialized
 
+
 def test_from_iter_filter_pipeline():
     def gen():
         for i in range(1000):
             yield {"id": i, "value": i * 3.0}
 
-    result = (
-        from_iter(gen())
-        .filter(col("value") > 2900)
-        .to_pylist()
-    )
+    result = from_iter(gen()).filter(col("value") > 2900).to_pylist()
     assert len(result) == 33  # 968..999
     assert all(r["value"] > 2900 for r in result)
 
 
 # ═══════════════════════════════════════════════════════════
 # ═══════════════════════════════════════════════════════════
+
 
 def test_from_iter_with_factory_replayable():
     def make_data():
@@ -94,6 +99,7 @@ def test_from_iter_with_factory_replayable():
     r2 = lf.to_pylist()
     assert r1 == r2
     assert len(r1) == 50
+
 
 def test_from_iter_factory_replays_for_collect():
     call_count = [0]
@@ -109,18 +115,22 @@ def test_from_iter_factory_replays_for_collect():
     # Factory called: once for peek, once per to_pylist
     assert call_count[0] >= 2
 
+
 def test_from_iter_with_list_re_iterable():
     data = [{"a": 1}, {"a": 2}, {"a": 3}]
     lf = from_iter(data)
     assert lf.to_pylist() == data
     assert lf.to_pylist() == data  # re-iterable
 
+
 def test_from_iter_with_range_of_tuples():
-    lf = from_iter(((i, i**2) for i in range(10)),
-                   columns=["n", "sq"], dtypes={"n": int, "sq": int})
+    lf = from_iter(
+        ((i, i**2) for i in range(10)), columns=["n", "sq"], dtypes={"n": int, "sq": int}
+    )
     result = lf.to_pylist()
     assert len(result) == 10
     assert result[4] == {"n": 4, "sq": 16}
+
 
 def test_from_iter_one_shot_generator_exhaustion():
     def gen():
@@ -142,6 +152,7 @@ def test_from_iter_one_shot_generator_exhaustion():
 # ═══════════════════════════════════════════════════════════
 # ═══════════════════════════════════════════════════════════
 
+
 def test_from_chunks_with_list_of_dict_batches():
     chunks = [
         [{"id": 1, "v": "a"}, {"id": 2, "v": "b"}],
@@ -153,6 +164,7 @@ def test_from_chunks_with_list_of_dict_batches():
     assert len(result) == 5
     assert result[0] == {"id": 1, "v": "a"}
 
+
 def test_from_chunks_schema_inference():
     chunks = [
         [{"x": 1, "y": 3.14}, {"x": 2, "y": 2.71}],
@@ -162,6 +174,7 @@ def test_from_chunks_schema_inference():
     s = lf.schema
     assert s.dtypes["x"] is int
     assert s.dtypes["y"] is float
+
 
 def test_from_chunks_with_factory_replayable():
     def make_chunks():
@@ -175,18 +188,16 @@ def test_from_chunks_with_factory_replayable():
     assert r1 == r2
     assert len(r1) == 5
 
+
 def test_from_chunks_filter_pipeline():
     def make_chunks():
         for batch_start in range(0, 100, 10):
             yield [{"id": i, "val": i * 2.0} for i in range(batch_start, batch_start + 10)]
 
-    result = (
-        from_chunks(make_chunks)
-        .filter(col("val") > 150)
-        .to_pylist()
-    )
+    result = from_chunks(make_chunks).filter(col("val") > 150).to_pylist()
     assert all(r["val"] > 150 for r in result)
     assert len(result) == 24  # ids 76..99
+
 
 def test_from_chunks_with_floe_chunks():
     lf1 = LazyFrame([{"a": 1}, {"a": 2}])
@@ -194,6 +205,7 @@ def test_from_chunks_with_floe_chunks():
     combined = from_chunks(iter([lf1, lf2]), columns=["a"], dtypes={"a": int})
     result = combined.to_pylist()
     assert len(result) == 4
+
 
 def test_from_chunks_with_tuple_batches():
     chunks = [
@@ -209,31 +221,29 @@ def test_from_chunks_with_tuple_batches():
 # ═══════════════════════════════════════════════════════════
 # ═══════════════════════════════════════════════════════════
 
+
 def test_stream_basic_pipeline():
     def gen():
         for i in range(100):
             yield {"id": i, "value": i * 2.0}
 
     result = (
-        Stream.from_iter(gen(), columns=["id", "value"],
-                        dtypes={"id": int, "value": float})
+        Stream.from_iter(gen(), columns=["id", "value"], dtypes={"id": int, "value": float})
         .filter(col("value") > 150)
         .to_pylist()
     )
     assert len(result) == 24
     assert all(r["value"] > 150 for r in result)
 
+
 def test_stream_with_column():
     def gen():
         for i in range(10):
             yield {"x": i, "y": i * 10}
 
-    result = (
-        Stream.from_iter(gen())
-        .with_column("total", col("x") + col("y"))
-        .to_pylist()
-    )
+    result = Stream.from_iter(gen()).with_column("total", col("x") + col("y")).to_pylist()
     assert result[5] == {"x": 5, "y": 50, "total": 55}
+
 
 def test_stream_filter_with_column_select():
     def gen():
@@ -252,13 +262,15 @@ def test_stream_filter_with_column_select():
     high = [r for r in result if r["label"] == "high"]
     assert all(r["val"] > 280 for r in high)
 
+
 def test_stream_to_csv_sink():
     def gen():
         for i in range(50):
             yield {"id": i, "score": i * 1.5}
 
     from pyfloe import read_csv
-    with tempfile.NamedTemporaryFile(suffix='.csv', delete=False) as f:
+
+    with tempfile.NamedTemporaryFile(suffix=".csv", delete=False) as f:
         path = f.name
     try:
         Stream.from_iter(gen()).filter(col("score") > 50).to_csv(path)
@@ -268,13 +280,15 @@ def test_stream_to_csv_sink():
     finally:
         os.unlink(path)
 
+
 def test_stream_to_jsonl_sink():
     def gen():
         for i in range(20):
             yield {"event": f"e_{i}", "ts": i}
 
     from pyfloe import read_jsonl
-    with tempfile.NamedTemporaryFile(suffix='.jsonl', delete=False) as f:
+
+    with tempfile.NamedTemporaryFile(suffix=".jsonl", delete=False) as f:
         path = f.name
     try:
         Stream.from_iter(gen()).filter(col("ts") > 10).to_jsonl(path)
@@ -283,14 +297,17 @@ def test_stream_to_jsonl_sink():
     finally:
         os.unlink(path)
 
+
 def test_stream_foreach_sink():
     collected = []
+
     def gen():
         for i in range(10):
             yield {"x": i}
 
     Stream.from_iter(gen()).filter(col("x") > 5).foreach(lambda row: collected.append(row))
     assert len(collected) == 4  # 6, 7, 8, 9
+
 
 def test_stream_count():
     def gen():
@@ -299,6 +316,7 @@ def test_stream_count():
 
     n = Stream.from_iter(gen()).filter(col("x") > 500).count()
     assert n == 499
+
 
 def test_stream_take():
     def gen():
@@ -309,6 +327,7 @@ def test_stream_take():
     assert len(first5) == 5
     assert first5[0] == {"x": 0}
 
+
 def test_stream_collect_returns_floe():
     def gen():
         for i in range(10):
@@ -318,18 +337,20 @@ def test_stream_collect_returns_floe():
     assert isinstance(lf, LazyFrame)
     assert len(lf) == 4
 
+
 def test_stream_from_csv():
-    path = os.path.join(os.path.dirname(__file__), 'test_data', 'orders.csv')
+    path = os.path.join(os.path.dirname(__file__), "test_data", "orders.csv")
     if not os.path.exists(path):
-        with open(path, 'w') as f:
-            f.write('order_id,customer_id,product,amount,region,active\n')
-            f.write('1,101,Widget A,250.00,EU,true\n')
-            f.write('2,102,Widget B,75.50,US,true\n')
-            f.write('3,101,Widget C,180.00,EU,false\n')
+        with open(path, "w") as f:
+            f.write("order_id,customer_id,product,amount,region,active\n")
+            f.write("1,101,Widget A,250.00,EU,true\n")
+            f.write("2,102,Widget B,75.50,US,true\n")
+            f.write("3,101,Widget C,180.00,EU,false\n")
 
     result = Stream.from_csv(path).filter(col("amount") > 100).to_pylist()
     assert len(result) >= 2
     assert all(r["amount"] > 100 for r in result)
+
 
 def test_stream_schema_available_without_execution():
     def gen():
@@ -337,6 +358,7 @@ def test_stream_schema_available_without_execution():
 
     s = Stream.from_iter(gen())
     assert s.schema.column_names == ["a", "b"]
+
 
 def test_stream_repr():
     def gen():
@@ -351,14 +373,16 @@ def test_stream_repr():
 # ═══════════════════════════════════════════════════════════
 # ═══════════════════════════════════════════════════════════
 
+
 def test_from_iter_streams_with_constant_memory():
     """Prove from_iter → filter → to_csv doesn't buffer everything."""
     N = 200_000
+
     def gen():
         for i in range(N):
             yield {"id": i, "value": i * 1.5}
 
-    with tempfile.NamedTemporaryFile(suffix='.csv', delete=False) as f:
+    with tempfile.NamedTemporaryFile(suffix=".csv", delete=False) as f:
         path = f.name
     try:
         tracemalloc.start()
@@ -371,6 +395,7 @@ def test_from_iter_streams_with_constant_memory():
         delta_kb = (after - before) / 1024
 
         from pyfloe import read_csv
+
         result = read_csv(path).to_pylist()
         assert len(result) > 0
         assert all(r["value"] > 290_000 for r in result)
@@ -379,21 +404,22 @@ def test_from_iter_streams_with_constant_memory():
     finally:
         os.unlink(path)
 
+
 def test_stream_processes_with_constant_memory():
     N = 200_000
+
     def gen():
         for i in range(N):
             yield {"id": i, "val": i * 2.0}
 
-    with tempfile.NamedTemporaryFile(suffix='.csv', delete=False) as f:
+    with tempfile.NamedTemporaryFile(suffix=".csv", delete=False) as f:
         path = f.name
     try:
         tracemalloc.start()
         before = tracemalloc.get_traced_memory()[0]
 
         (
-            Stream.from_iter(gen(), columns=["id", "val"],
-                            dtypes={"id": int, "val": float})
+            Stream.from_iter(gen(), columns=["id", "val"], dtypes={"id": int, "val": float})
             .filter(col("val") > 390_000)
             .with_column("flag", when(col("val") > 395_000, "hot").otherwise("warm"))
             .to_csv(path)
@@ -404,11 +430,13 @@ def test_stream_processes_with_constant_memory():
         delta_kb = (after - before) / 1024
 
         from pyfloe import read_csv
+
         result = read_csv(path).to_pylist()
         assert len(result) > 0
         assert delta_kb < 5000, f"Used {delta_kb:.0f} KB — likely buffering"
     finally:
         os.unlink(path)
+
 
 def test_from_chunks_streams_chunk_by_chunk():
     chunk_count = [0]
@@ -418,17 +446,79 @@ def test_from_chunks_streams_chunk_by_chunk():
             chunk_count[0] += 1
             yield [{"id": batch * 10 + i, "v": i} for i in range(10)]
 
-    with tempfile.NamedTemporaryFile(suffix='.csv', delete=False) as f:
+    with tempfile.NamedTemporaryFile(suffix=".csv", delete=False) as f:
         path = f.name
     try:
         from_chunks(make_chunks).filter(col("v") > 5).to_csv(path)
 
         from pyfloe import read_csv
+
         result = read_csv(path).to_pylist()
         assert chunk_count[0] >= 2  # chunks were actually generated lazily
         assert all(r["v"] > 5 for r in result)
     finally:
         os.unlink(path)
+
+
+# ═══════════════════════════════════════════════════════════
+# Scalar iterators
+# ═══════════════════════════════════════════════════════════
+
+
+def test_from_iter_with_scalar_generator():
+    data = (i for i in [1, 2, 3, 4, 5, 6])
+    lf = from_iter(data)
+    assert lf.columns == ["value"]
+    result = lf.to_pylist()
+    assert len(result) == 6
+    assert result[0] == {"value": 1}
+    assert result[-1] == {"value": 6}
+
+
+def test_from_iter_with_scalar_generator_custom_column():
+    data = (i * 2.0 for i in range(5))
+    lf = from_iter(data, columns=["score"])
+    assert lf.columns == ["score"]
+    result = lf.to_pylist()
+    assert len(result) == 5
+    assert result[0] == {"score": 0.0}
+
+
+def test_from_iter_with_scalar_string_generator():
+    data = (f"item_{i}" for i in range(3))
+    lf = from_iter(data)
+    assert lf.columns == ["value"]
+    result = lf.to_pylist()
+    assert result == [{"value": "item_0"}, {"value": "item_1"}, {"value": "item_2"}]
+
+
+def test_from_iter_with_scalar_replayable_factory():
+    lf = from_iter(lambda: (i for i in [10, 20, 30]))
+    assert lf.to_pylist() == lf.to_pylist()
+    assert lf.to_pylist() == [{"value": 10}, {"value": 20}, {"value": 30}]
+
+
+def test_lazyframe_from_generator():
+    data = (i for i in [1, 2, 3, 4, 5, 6])
+    lf = LazyFrame(data)
+    assert lf.columns == ["value"]
+    result = lf.to_pylist()
+    assert len(result) == 6
+    assert result[0] == {"value": 1}
+
+
+def test_lazyframe_from_dict_generator():
+    data = ({"x": i, "y": i * 2} for i in range(3))
+    lf = LazyFrame(data)
+    assert lf.columns == ["x", "y"]
+    result = lf.to_pylist()
+    assert result == [{"x": 0, "y": 0}, {"x": 1, "y": 2}, {"x": 2, "y": 4}]
+
+
+def test_stream_from_iter_with_scalars():
+    data = (i for i in range(10))
+    result = Stream.from_iter(data).filter(col("value") > 5).to_pylist()
+    assert result == [{"value": 6}, {"value": 7}, {"value": 8}, {"value": 9}]
 
 
 # ═══════════════════════════════════════════════════════════

@@ -18,7 +18,13 @@ class Agg:
     """Aggregation function names for use with ``pivot(agg=...)`` and group-by.
 
     Examples:
-        >>> lf.pivot(index="name", on="subject", values="score", agg=Agg.sum)
+        >>> lf = LazyFrame([
+        ...     {"name": "Alice", "subject": "math", "score": 90},
+        ...     {"name": "Alice", "subject": "english", "score": 85},
+        ... ])
+        >>> lf.pivot(index="name", on="subject", values="score", agg=Agg.sum,
+        ...          columns=["math", "english"]).to_pylist()
+        [{'name': 'Alice', 'math': 90, 'english': 85}]
     """
 
     sum: AggFunc = "sum"
@@ -35,7 +41,10 @@ class Join:
     """Join type names for use with ``join(how=...)``.
 
     Examples:
-        >>> orders.join(customers, on="cust", how=Join.left)
+        >>> orders = LazyFrame([{"id": 1, "cust": 10}])
+        >>> customers = LazyFrame([{"cust": 10, "name": "Alice"}])
+        >>> orders.join(customers, on="cust", how=Join.left).to_pylist()
+        [{'id': 1, 'cust': 10, 'right_cust': 10, 'name': 'Alice'}]
     """
 
     inner: JoinHow = "inner"
@@ -47,7 +56,10 @@ class DateTrunc:
     """Truncation units for use with ``col("ts").dt.truncate(...)``.
 
     Examples:
-        >>> col("ts").dt.truncate(DateTrunc.month)
+        >>> from datetime import datetime
+        >>> lf = LazyFrame([{"ts": datetime(2024, 3, 15, 14, 30)}])
+        >>> lf.with_column("mo", col("ts").dt.truncate(DateTrunc.month)).to_pylist()
+        [{'ts': datetime.datetime(2024, 3, 15, 14, 30), 'mo': datetime.datetime(2024, 3, 1, 0, 0)}]
     """
 
     year: DateTruncUnit = "year"
@@ -82,18 +94,19 @@ class Expr:
     Examples:
         Arithmetic:
 
-        >>> col("price") * 0.9  # doctest: +SKIP
-        (col("price") * 0.9)
+        >>> LazyFrame([{"price": 100}]).with_column("sale", col("price") * 0.9).to_pylist()
+        [{'price': 100, 'sale': 90.0}]
 
         Comparisons:
 
-        >>> col("age") > 18  # doctest: +SKIP
-        (col("age") > 18)
+        >>> LazyFrame([{"age": 20}, {"age": 15}]).filter(col("age") > 18).to_pylist()
+        [{'age': 20}]
 
         Logical operators:
 
-        >>> (col("age") > 18) & (col("active") == True)  # doctest: +SKIP
-        ((col("age") > 18) & (col("active") == True))
+        >>> data = [{"age": 20, "active": True}, {"age": 20, "active": False}]
+        >>> LazyFrame(data).filter((col("age") > 18) & (col("active") == True)).to_pylist()
+        [{'age': 20, 'active': True}]
     """
 
     def eval(self, row: tuple, col_map: dict[str, int]) -> Any:
@@ -184,8 +197,8 @@ class Expr:
             name: New column name.
 
         Examples:
-            >>> (col("price") * 0.2).alias("tax")  # doctest: +SKIP
-            (col("price") * 0.2).alias("tax")
+            >>> LazyFrame([{"price": 100}]).with_column((col("price") * 0.2).alias("tax")).to_pylist()
+            [{'price': 100, 'tax': 20.0}]
         """
         return AliasExpr(self, name)
 
@@ -196,8 +209,8 @@ class Expr:
             dtype: Target Python type (e.g. ``int``, ``str``, ``float``).
 
         Examples:
-            >>> col("amount").cast(str)  # doctest: +SKIP
-            col("amount").cast(str)
+            >>> LazyFrame([{"amount": 42}]).with_column("s", col("amount").cast(str)).to_pylist()
+            [{'amount': 42, 's': '42'}]
         """
         return CastExpr(self, dtype)
 
@@ -208,8 +221,8 @@ class Expr:
             A boolean expression that is True for None values.
 
         Examples:
-            >>> lf = LazyFrame([{"x": 1}, {"x": None}])  # doctest: +SKIP
-            >>> lf.filter(col("x").is_null()).to_pylist()  # doctest: +SKIP
+            >>> lf = LazyFrame([{"x": 1}, {"x": None}])
+            >>> lf.filter(col("x").is_null()).to_pylist()
             [{'x': None}]
         """
         return UnaryExpr(self, lambda x: x is None, "is_null")
@@ -221,8 +234,8 @@ class Expr:
             A boolean expression that is True for non-None values.
 
         Examples:
-            >>> lf = LazyFrame([{"x": 1}, {"x": None}])  # doctest: +SKIP
-            >>> lf.filter(col("x").is_not_null()).to_pylist()  # doctest: +SKIP
+            >>> lf = LazyFrame([{"x": 1}, {"x": None}])
+            >>> lf.filter(col("x").is_not_null()).to_pylist()
             [{'x': 1}]
         """
         return UnaryExpr(self, lambda x: x is not None, "is_not_null")
@@ -237,8 +250,8 @@ class Expr:
             A boolean expression.
 
         Examples:
-            >>> lf = LazyFrame([{"r": "EU"}, {"r": "US"}, {"r": "AP"}])  # doctest: +SKIP
-            >>> lf.filter(col("r").is_in(["EU", "US"])).to_pylist()  # doctest: +SKIP
+            >>> lf = LazyFrame([{"r": "EU"}, {"r": "US"}, {"r": "AP"}])
+            >>> lf.filter(col("r").is_in(["EU", "US"])).to_pylist()
             [{'r': 'EU'}, {'r': 'US'}]
         """
         s = frozenset(values)
@@ -253,8 +266,8 @@ class Expr:
             ``.contains()``, ``.replace()``, etc.
 
         Examples:
-            >>> col("name").str.upper()  # doctest: +SKIP
-            str.upper(col("name"))
+            >>> LazyFrame([{"name": "alice"}]).with_column("u", col("name").str.upper()).to_pylist()
+            [{'name': 'alice', 'u': 'ALICE'}]
         """
         return StringAccessor(self)
 
@@ -267,8 +280,10 @@ class Expr:
             ``.truncate()``, ``.add_days()``, etc.
 
         Examples:
-            >>> col("ts").dt.year()  # doctest: +SKIP
-            dt.year(col("ts"))
+            >>> from datetime import datetime
+            >>> lf = LazyFrame([{"ts": datetime(2024, 1, 15)}])
+            >>> lf.with_column("y", col("ts").dt.year()).to_pylist()
+            [{'ts': datetime.datetime(2024, 1, 15, 0, 0), 'y': 2024}]
         """
         return DateTimeAccessor(self)
 
@@ -276,7 +291,9 @@ class Expr:
         """Sum of non-null values. Use inside ``group_by().agg()`` or with ``.over()``.
 
         Examples:
-            >>> col("amount").sum().alias("total")  # doctest: +SKIP
+            >>> data = [{"g": "a", "amount": 10}, {"g": "a", "amount": 20}]
+            >>> LazyFrame(data).group_by("g").agg(col("amount").sum().alias("total")).to_pylist()
+            [{'g': 'a', 'total': 30}]
         """
         return AggExpr(self, "sum", sum)
 
@@ -284,7 +301,9 @@ class Expr:
         """Mean of non-null values. Use inside ``group_by().agg()`` or with ``.over()``.
 
         Examples:
-            >>> col("score").mean().alias("avg_score")  # doctest: +SKIP
+            >>> data = [{"g": "a", "score": 80}, {"g": "a", "score": 100}]
+            >>> LazyFrame(data).group_by("g").agg(col("score").mean().alias("avg")).to_pylist()
+            [{'g': 'a', 'avg': 90.0}]
         """
         return AggExpr(self, "mean", lambda v: sum(v) / len(v) if v else 0)
 
@@ -292,7 +311,9 @@ class Expr:
         """Minimum of non-null values. Use inside ``group_by().agg()`` or with ``.over()``.
 
         Examples:
-            >>> col("price").min().alias("lowest")  # doctest: +SKIP
+            >>> data = [{"g": "a", "price": 30}, {"g": "a", "price": 10}]
+            >>> LazyFrame(data).group_by("g").agg(col("price").min().alias("lowest")).to_pylist()
+            [{'g': 'a', 'lowest': 10}]
         """
         return AggExpr(self, "min", min)
 
@@ -300,7 +321,9 @@ class Expr:
         """Maximum of non-null values. Use inside ``group_by().agg()`` or with ``.over()``.
 
         Examples:
-            >>> col("price").max().alias("highest")  # doctest: +SKIP
+            >>> data = [{"g": "a", "price": 30}, {"g": "a", "price": 10}]
+            >>> LazyFrame(data).group_by("g").agg(col("price").max().alias("highest")).to_pylist()
+            [{'g': 'a', 'highest': 30}]
         """
         return AggExpr(self, "max", max)
 
@@ -308,7 +331,9 @@ class Expr:
         """Count of non-null values. Use inside ``group_by().agg()`` or with ``.over()``.
 
         Examples:
-            >>> col("order_id").count().alias("n_orders")  # doctest: +SKIP
+            >>> data = [{"g": "a", "order_id": 1}, {"g": "a", "order_id": 2}]
+            >>> LazyFrame(data).group_by("g").agg(col("order_id").count().alias("n")).to_pylist()
+            [{'g': 'a', 'n': 2}]
         """
         return AggExpr(self, "count", len)
 
@@ -316,7 +341,9 @@ class Expr:
         """First non-null value in the group. Use inside ``group_by().agg()``.
 
         Examples:
-            >>> col("name").first().alias("first_name")  # doctest: +SKIP
+            >>> data = [{"g": "a", "name": "Alice"}, {"g": "a", "name": "Bob"}]
+            >>> LazyFrame(data).group_by("g").agg(col("name").first().alias("first_name")).to_pylist()
+            [{'g': 'a', 'first_name': 'Alice'}]
         """
         return AggExpr(self, "first", lambda v: v[0] if v else None)
 
@@ -324,7 +351,9 @@ class Expr:
         """Last non-null value in the group. Use inside ``group_by().agg()``.
 
         Examples:
-            >>> col("name").last().alias("last_name")  # doctest: +SKIP
+            >>> data = [{"g": "a", "name": "Alice"}, {"g": "a", "name": "Bob"}]
+            >>> LazyFrame(data).group_by("g").agg(col("name").last().alias("last_name")).to_pylist()
+            [{'g': 'a', 'last_name': 'Bob'}]
         """
         return AggExpr(self, "last", lambda v: v[-1] if v else None)
 
@@ -332,7 +361,9 @@ class Expr:
         """Count of distinct non-null values. Use inside ``group_by().agg()``.
 
         Examples:
-            >>> col("product").n_unique().alias("unique_products")  # doctest: +SKIP
+            >>> data = [{"g": "a", "product": "x"}, {"g": "a", "product": "x"}, {"g": "a", "product": "y"}]
+            >>> LazyFrame(data).group_by("g").agg(col("product").n_unique().alias("u")).to_pylist()
+            [{'g': 'a', 'u': 2}]
         """
         return AggExpr(self, "n_unique", lambda v: len(set(v)))
 
@@ -340,7 +371,9 @@ class Expr:
         """Cumulative sum. Use with ``.over()`` to create a window expression.
 
         Examples:
-            >>> col("amount").cumsum().over(order_by="date")  # doctest: +SKIP
+            >>> data = [{"date": 1, "amount": 10}, {"date": 2, "amount": 20}]
+            >>> LazyFrame(data).with_column("cs", col("amount").cumsum().over(order_by="date")).to_pylist()
+            [{'date': 1, 'amount': 10, 'cs': 10}, {'date': 2, 'amount': 20, 'cs': 30}]
         """
         return CumExpr(self, "cumsum")
 
@@ -348,7 +381,9 @@ class Expr:
         """Cumulative maximum. Use with ``.over()`` to create a window expression.
 
         Examples:
-            >>> col("score").cummax().over(order_by="round")  # doctest: +SKIP
+            >>> data = [{"round": 1, "score": 5}, {"round": 2, "score": 3}, {"round": 3, "score": 8}]
+            >>> LazyFrame(data).with_column("cm", col("score").cummax().over(order_by="round")).to_pylist()
+            [{'round': 1, 'score': 5, 'cm': 5}, {'round': 2, 'score': 3, 'cm': 5}, {'round': 3, 'score': 8, 'cm': 8}]
         """
         return CumExpr(self, "cummax")
 
@@ -356,7 +391,9 @@ class Expr:
         """Cumulative minimum. Use with ``.over()`` to create a window expression.
 
         Examples:
-            >>> col("score").cummin().over(order_by="round")  # doctest: +SKIP
+            >>> data = [{"round": 1, "score": 5}, {"round": 2, "score": 3}, {"round": 3, "score": 8}]
+            >>> LazyFrame(data).with_column("cm", col("score").cummin().over(order_by="round")).to_pylist()
+            [{'round': 1, 'score': 5, 'cm': 5}, {'round': 2, 'score': 3, 'cm': 3}, {'round': 3, 'score': 8, 'cm': 3}]
         """
         return CumExpr(self, "cummin")
 
@@ -370,7 +407,9 @@ class Expr:
             default: Value to use when there is no previous row.
 
         Examples:
-            >>> col("value").lag(1, default=0).over(order_by="id")  # doctest: +SKIP
+            >>> data = [{"id": 1, "value": 10}, {"id": 2, "value": 20}, {"id": 3, "value": 30}]
+            >>> LazyFrame(data).with_column("prev", col("value").lag(1, default=0).over(order_by="id")).to_pylist()
+            [{'id': 1, 'value': 10, 'prev': 0}, {'id': 2, 'value': 20, 'prev': 10}, {'id': 3, 'value': 30, 'prev': 20}]
         """
         return OffsetExpr(self, -n, default)
 
@@ -384,7 +423,9 @@ class Expr:
             default: Value to use when there is no subsequent row.
 
         Examples:
-            >>> col("value").lead(1, default=0).over(order_by="id")  # doctest: +SKIP
+            >>> data = [{"id": 1, "value": 10}, {"id": 2, "value": 20}, {"id": 3, "value": 30}]
+            >>> LazyFrame(data).with_column("next", col("value").lead(1, default=0).over(order_by="id")).to_pylist()
+            [{'id': 1, 'value': 10, 'next': 20}, {'id': 2, 'value': 20, 'next': 30}, {'id': 3, 'value': 30, 'next': 0}]
         """
         return OffsetExpr(self, n, default)
 
@@ -677,7 +718,9 @@ class AggExpr(Expr):
             name: New column name.
 
         Examples:
-            >>> col("amount").sum().alias("total_amount")  # doctest: +SKIP
+            >>> data = [{"g": "a", "amount": 10}, {"g": "a", "amount": 20}]
+            >>> LazyFrame(data).group_by("g").agg(col("amount").sum().alias("total_amount")).to_pylist()
+            [{'g': 'a', 'total_amount': 30}]
         """
         self._alias = name
         return self
@@ -695,7 +738,9 @@ class AggExpr(Expr):
             A WindowExpr for use with :meth:`~pyfloe.LazyFrame.with_column`.
 
         Examples:
-            >>> col("amount").sum().over(partition_by="region")  # doctest: +SKIP
+            >>> data = [{"region": "EU", "amount": 10}, {"region": "EU", "amount": 20}, {"region": "US", "amount": 5}]
+            >>> LazyFrame(data).with_column("total", col("amount").sum().over(partition_by="region")).to_pylist()
+            [{'region': 'EU', 'amount': 10, 'total': 30}, {'region': 'EU', 'amount': 20, 'total': 30}, {'region': 'US', 'amount': 5, 'total': 5}]
         """
         return WindowExpr(self, partition_by, order_by)
 
@@ -898,7 +943,8 @@ class StringAccessor:
         """Convert to uppercase.
 
         Examples:
-            >>> col("name").str.upper()  # doctest: +SKIP
+            >>> LazyFrame([{"name": "alice"}]).with_column("u", col("name").str.upper()).to_pylist()
+            [{'name': 'alice', 'u': 'ALICE'}]
         """
         return self._unary(lambda x: x.upper() if isinstance(x, str) else x, "str.upper")
 
@@ -906,7 +952,8 @@ class StringAccessor:
         """Convert to lowercase.
 
         Examples:
-            >>> col("name").str.lower()  # doctest: +SKIP
+            >>> LazyFrame([{"name": "ALICE"}]).with_column("l", col("name").str.lower()).to_pylist()
+            [{'name': 'ALICE', 'l': 'alice'}]
         """
         return self._unary(lambda x: x.lower() if isinstance(x, str) else x, "str.lower")
 
@@ -914,7 +961,8 @@ class StringAccessor:
         """Strip leading and trailing whitespace.
 
         Examples:
-            >>> col("text").str.strip()  # doctest: +SKIP
+            >>> LazyFrame([{"text": "  hi  "}]).with_column("s", col("text").str.strip()).to_pylist()
+            [{'text': '  hi  ', 's': 'hi'}]
         """
         return self._unary(lambda x: x.strip() if isinstance(x, str) else x, "str.strip")
 
@@ -922,7 +970,8 @@ class StringAccessor:
         """Return the length of the string.
 
         Examples:
-            >>> col("name").str.len()  # doctest: +SKIP
+            >>> LazyFrame([{"name": "Alice"}]).with_column("l", col("name").str.len()).to_pylist()
+            [{'name': 'Alice', 'l': 5}]
         """
         return self._unary(lambda x: len(x) if isinstance(x, str) else 0, "str.len")
 
@@ -930,7 +979,8 @@ class StringAccessor:
         """Convert to title case.
 
         Examples:
-            >>> col("name").str.title()  # doctest: +SKIP
+            >>> LazyFrame([{"name": "hello world"}]).with_column("t", col("name").str.title()).to_pylist()
+            [{'name': 'hello world', 't': 'Hello World'}]
         """
         return self._unary(lambda x: x.title() if isinstance(x, str) else x, "str.title")
 
@@ -944,8 +994,8 @@ class StringAccessor:
             A boolean expression.
 
         Examples:
-            >>> lf = LazyFrame([{"product": "Widget A"}, {"product": "Gadget B"}])  # doctest: +SKIP
-            >>> lf.filter(col("product").str.contains("Widget")).to_pylist()  # doctest: +SKIP
+            >>> lf = LazyFrame([{"product": "Widget A"}, {"product": "Gadget B"}])
+            >>> lf.filter(col("product").str.contains("Widget")).to_pylist()
             [{'product': 'Widget A'}]
         """
         return self._unary(
@@ -962,7 +1012,8 @@ class StringAccessor:
             A boolean expression.
 
         Examples:
-            >>> col("name").str.startswith("A")  # doctest: +SKIP
+            >>> LazyFrame([{"name": "Alice"}, {"name": "Bob"}]).filter(col("name").str.startswith("A")).to_pylist()
+            [{'name': 'Alice'}]
         """
         return self._unary(
             lambda x: x.startswith(prefix) if isinstance(x, str) else False,
@@ -979,7 +1030,8 @@ class StringAccessor:
             A boolean expression.
 
         Examples:
-            >>> col("file").str.endswith(".csv")  # doctest: +SKIP
+            >>> LazyFrame([{"file": "data.csv"}, {"file": "data.json"}]).filter(col("file").str.endswith(".csv")).to_pylist()
+            [{'file': 'data.csv'}]
         """
         return self._unary(
             lambda x: x.endswith(suffix) if isinstance(x, str) else False,
@@ -994,8 +1046,8 @@ class StringAccessor:
             new: Replacement string.
 
         Examples:
-            >>> lf = LazyFrame([{"name": "Widget A"}])  # doctest: +SKIP
-            >>> lf.with_column("renamed", col("name").str.replace("Widget", "Gadget")).to_pylist()  # doctest: +SKIP
+            >>> lf = LazyFrame([{"name": "Widget A"}])
+            >>> lf.with_column("renamed", col("name").str.replace("Widget", "Gadget")).to_pylist()
             [{'name': 'Widget A', 'renamed': 'Gadget A'}]
         """
         return self._unary(
@@ -1011,8 +1063,8 @@ class StringAccessor:
             end: End index (exclusive).
 
         Examples:
-            >>> lf = LazyFrame([{"name": "Alice"}])  # doctest: +SKIP
-            >>> lf.with_column("first3", col("name").str.slice(0, 3)).to_pylist()  # doctest: +SKIP
+            >>> lf = LazyFrame([{"name": "Alice"}])
+            >>> lf.with_column("first3", col("name").str.slice(0, 3)).to_pylist()
             [{'name': 'Alice', 'first3': 'Ali'}]
         """
         return self._unary(
@@ -1085,7 +1137,9 @@ class DateTimeAccessor:
         """Full name of the day (e.g. ``'Monday'``).
 
         Examples:
-            >>> col("ts").dt.day_name()  # doctest: +SKIP
+            >>> from datetime import datetime
+            >>> LazyFrame([{"ts": datetime(2024, 1, 15)}]).with_column("d", col("ts").dt.day_name()).to_pylist()
+            [{'ts': datetime.datetime(2024, 1, 15, 0, 0), 'd': 'Monday'}]
         """
         _DAYS = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"]
         return self._unary(lambda x: _DAYS[x.weekday()], "dt.day_name", str)
@@ -1094,7 +1148,9 @@ class DateTimeAccessor:
         """Full name of the month (e.g. ``'January'``).
 
         Examples:
-            >>> col("ts").dt.month_name()  # doctest: +SKIP
+            >>> from datetime import datetime
+            >>> LazyFrame([{"ts": datetime(2024, 1, 15)}]).with_column("m", col("ts").dt.month_name()).to_pylist()
+            [{'ts': datetime.datetime(2024, 1, 15, 0, 0), 'm': 'January'}]
         """
         _MONTHS = [
             "",
@@ -1117,7 +1173,9 @@ class DateTimeAccessor:
         """Quarter of the year (1–4).
 
         Examples:
-            >>> col("ts").dt.quarter()  # doctest: +SKIP
+            >>> from datetime import datetime
+            >>> LazyFrame([{"ts": datetime(2024, 3, 15)}]).with_column("q", col("ts").dt.quarter()).to_pylist()
+            [{'ts': datetime.datetime(2024, 3, 15, 0, 0), 'q': 1}]
         """
         return self._unary(lambda x: (x.month - 1) // 3 + 1, "dt.quarter")
 
@@ -1125,7 +1183,9 @@ class DateTimeAccessor:
         """ISO week number (1–53).
 
         Examples:
-            >>> col("ts").dt.week()  # doctest: +SKIP
+            >>> from datetime import datetime
+            >>> LazyFrame([{"ts": datetime(2024, 1, 15)}]).with_column("w", col("ts").dt.week()).to_pylist()
+            [{'ts': datetime.datetime(2024, 1, 15, 0, 0), 'w': 3}]
         """
         return self._unary(lambda x: x.isocalendar()[1], "dt.week")
 
@@ -1133,7 +1193,9 @@ class DateTimeAccessor:
         """Day of the year (1–366).
 
         Examples:
-            >>> col("ts").dt.day_of_year()  # doctest: +SKIP
+            >>> from datetime import datetime
+            >>> LazyFrame([{"ts": datetime(2024, 3, 15)}]).with_column("d", col("ts").dt.day_of_year()).to_pylist()
+            [{'ts': datetime.datetime(2024, 3, 15, 0, 0), 'd': 75}]
         """
         return self._unary(lambda x: x.timetuple().tm_yday, "dt.day_of_year")
 
@@ -1143,7 +1205,9 @@ class DateTimeAccessor:
         Returns a ``datetime.date`` object.
 
         Examples:
-            >>> col("ts").dt.date()  # doctest: +SKIP
+            >>> from datetime import datetime, date
+            >>> LazyFrame([{"ts": datetime(2024, 1, 15, 8, 30)}]).with_column("d", col("ts").dt.date()).to_pylist()
+            [{'ts': datetime.datetime(2024, 1, 15, 8, 30), 'd': datetime.date(2024, 1, 15)}]
         """
         return self._unary(lambda x: x.date() if hasattr(x, "date") else x, "dt.date", _date)
 
@@ -1153,7 +1217,9 @@ class DateTimeAccessor:
         Returns a ``datetime.time`` object.
 
         Examples:
-            >>> col("ts").dt.time()  # doctest: +SKIP
+            >>> from datetime import datetime, time
+            >>> LazyFrame([{"ts": datetime(2024, 1, 15, 8, 30)}]).with_column("t", col("ts").dt.time()).to_pylist()
+            [{'ts': datetime.datetime(2024, 1, 15, 8, 30), 't': datetime.time(8, 30)}]
         """
         return self._unary(lambda x: x.time() if hasattr(x, "time") else x, "dt.time", _time)
 
@@ -1168,9 +1234,9 @@ class DateTimeAccessor:
             Truncate to month:
 
             >>> from datetime import datetime
-            >>> lf = LazyFrame([{"ts": datetime(2024, 3, 15, 14, 30)}])  # doctest: +SKIP
-            >>> lf.with_column("mo", col("ts").dt.truncate("month")).to_pylist()  # doctest: +SKIP
-            [{'ts': ..., 'mo': datetime.datetime(2024, 3, 1, 0, 0)}]
+            >>> lf = LazyFrame([{"ts": datetime(2024, 3, 15, 14, 30)}])
+            >>> lf.with_column("mo", col("ts").dt.truncate("month")).to_pylist()
+            [{'ts': datetime.datetime(2024, 3, 15, 14, 30), 'mo': datetime.datetime(2024, 3, 1, 0, 0)}]
 
         Raises:
             ValueError: If *unit* is not recognized.
@@ -1208,7 +1274,9 @@ class DateTimeAccessor:
             fmt: Format string (e.g. ``'%Y/%m/%d'``).
 
         Examples:
-            >>> col("ts").dt.strftime("%Y-%m-%d")  # doctest: +SKIP
+            >>> from datetime import datetime
+            >>> LazyFrame([{"ts": datetime(2024, 1, 15)}]).with_column("s", col("ts").dt.strftime("%Y-%m-%d")).to_pylist()
+            [{'ts': datetime.datetime(2024, 1, 15, 0, 0), 's': '2024-01-15'}]
         """
         return self._unary(lambda x: x.strftime(fmt), f'dt.strftime("{fmt}")', str)
 
@@ -1218,7 +1286,9 @@ class DateTimeAccessor:
         Naive datetimes are treated as UTC.
 
         Examples:
-            >>> col("ts").dt.epoch_seconds()  # doctest: +SKIP
+            >>> from datetime import datetime
+            >>> LazyFrame([{"ts": datetime(2024, 1, 1)}]).with_column("e", col("ts").dt.epoch_seconds()).to_pylist()
+            [{'ts': datetime.datetime(2024, 1, 1, 0, 0), 'e': 1704067200.0}]
         """
         from datetime import datetime as _dt
         from datetime import timezone as _tz
@@ -1241,7 +1311,9 @@ class DateTimeAccessor:
             n: Number of days (can be negative).
 
         Examples:
-            >>> col("ts").dt.add_days(7)  # doctest: +SKIP
+            >>> from datetime import datetime
+            >>> LazyFrame([{"ts": datetime(2024, 1, 1)}]).with_column("d", col("ts").dt.add_days(7)).to_pylist()
+            [{'ts': datetime.datetime(2024, 1, 1, 0, 0), 'd': datetime.datetime(2024, 1, 8, 0, 0)}]
         """
         from datetime import timedelta
 
@@ -1255,7 +1327,9 @@ class DateTimeAccessor:
             n: Number of hours (can be negative).
 
         Examples:
-            >>> col("ts").dt.add_hours(3)  # doctest: +SKIP
+            >>> from datetime import datetime
+            >>> LazyFrame([{"ts": datetime(2024, 1, 1)}]).with_column("h", col("ts").dt.add_hours(3)).to_pylist()
+            [{'ts': datetime.datetime(2024, 1, 1, 0, 0), 'h': datetime.datetime(2024, 1, 1, 3, 0)}]
         """
         from datetime import timedelta
 
@@ -1269,7 +1343,9 @@ class DateTimeAccessor:
             n: Number of minutes (can be negative).
 
         Examples:
-            >>> col("ts").dt.add_minutes(30)  # doctest: +SKIP
+            >>> from datetime import datetime
+            >>> LazyFrame([{"ts": datetime(2024, 1, 1)}]).with_column("m", col("ts").dt.add_minutes(30)).to_pylist()
+            [{'ts': datetime.datetime(2024, 1, 1, 0, 0), 'm': datetime.datetime(2024, 1, 1, 0, 30)}]
         """
         from datetime import timedelta
 
@@ -1283,7 +1359,9 @@ class DateTimeAccessor:
             n: Number of seconds (can be negative).
 
         Examples:
-            >>> col("ts").dt.add_seconds(90)  # doctest: +SKIP
+            >>> from datetime import datetime
+            >>> LazyFrame([{"ts": datetime(2024, 1, 1)}]).with_column("s", col("ts").dt.add_seconds(90)).to_pylist()
+            [{'ts': datetime.datetime(2024, 1, 1, 0, 0), 's': datetime.datetime(2024, 1, 1, 0, 1, 30)}]
         """
         from datetime import timedelta
 
@@ -1427,7 +1505,7 @@ def rank() -> RankExpr:
         >>> import pyfloe as pf
         >>> data = [{"name": "a", "score": 10}, {"name": "b", "score": 20},
         ...         {"name": "c", "score": 20}, {"name": "d", "score": 30}]
-        >>> pf.LazyFrame(data).with_column("r", pf.rank().over(order_by="score")).to_pylist()  # doctest: +SKIP
+        >>> pf.LazyFrame(data).with_column("r", pf.rank().over(order_by="score")).to_pylist()
         [{'name': 'a', 'score': 10, 'r': 1}, {'name': 'b', 'score': 20, 'r': 2}, {'name': 'c', 'score': 20, 'r': 2}, {'name': 'd', 'score': 30, 'r': 4}]
     """
     return RankExpr("rank")
@@ -1443,8 +1521,8 @@ def dense_rank() -> RankExpr:
         >>> import pyfloe as pf
         >>> data = [{"name": "a", "score": 10}, {"name": "b", "score": 20},
         ...         {"name": "c", "score": 20}, {"name": "d", "score": 30}]
-        >>> pf.LazyFrame(data).with_column("dr", pf.dense_rank().over(order_by="score")).to_pylist()  # doctest: +SKIP
-        [{'name': 'a', ..., 'dr': 1}, {'name': 'b', ..., 'dr': 2}, {'name': 'c', ..., 'dr': 2}, {'name': 'd', ..., 'dr': 3}]
+        >>> pf.LazyFrame(data).with_column("dr", pf.dense_rank().over(order_by="score")).to_pylist()
+        [{'name': 'a', 'score': 10, 'dr': 1}, {'name': 'b', 'score': 20, 'dr': 2}, {'name': 'c', 'score': 20, 'dr': 2}, {'name': 'd', 'score': 30, 'dr': 3}]
     """
     return RankExpr("dense_rank")
 
@@ -1460,7 +1538,7 @@ def row_number() -> RankExpr:
         >>> data = [{"region": "EU", "amount": 100}, {"region": "EU", "amount": 200}]
         >>> pf.LazyFrame(data).with_column("rn",
         ...     pf.row_number().over(partition_by="region", order_by="amount")
-        ... ).to_pylist()  # doctest: +SKIP
+        ... ).to_pylist()
         [{'region': 'EU', 'amount': 100, 'rn': 1}, {'region': 'EU', 'amount': 200, 'rn': 2}]
     """
     return RankExpr("row_number")
