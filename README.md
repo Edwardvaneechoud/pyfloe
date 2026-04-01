@@ -1,5 +1,4 @@
 # pyfloe
-
 **Zero-dependency, lazy dataframes for Python.**
 
 pyfloe is a pure-Python dataframe library with lazy evaluation, query optimization, and type safety — no external dependencies required.
@@ -37,6 +36,10 @@ pip install pyfloe
 ## Documentation
 
 Full documentation is available at [edwardvaneechoud.github.io/pyfloe](https://edwardvaneechoud.github.io/pyfloe/).
+
+## Tutorial
+
+Want to understand how a dataframe engine works under the hood? [**Build Your Own DataFrame**](https://edwardvaneechoud.github.io/pyfloe-tutorial/) is a five-module course that takes pyfloe apart piece by piece — expression trees, plan nodes, the volcano model, hash joins, and the query optimizer — until nothing feels like magic.
 
 ## License
 
