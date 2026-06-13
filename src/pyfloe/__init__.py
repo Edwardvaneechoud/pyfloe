@@ -43,4 +43,4 @@ __all__ = [
     'from_iter', 'from_chunks', 'Stream',
 ]
 
-__version__ = '0.1.0'
+__version__ = '0.1.4'
