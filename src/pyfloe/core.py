@@ -26,8 +26,10 @@ from .plan import (
     ScanNode,
     SortedAggNode,
     SortedMergeJoinNode,
+    SortedUniqueNode,
     SortNode,
     UnionNode,
+    UniqueNode,
     UnpivotNode,
     WindowNode,
     WithColumnNode,
@@ -806,6 +808,44 @@ class LazyFrame:
         """
         return LazyFrame._from_plan(LimitNode(self._plan, n))
 
+    def unique(self, *subset: str, sorted: bool = False) -> LazyFrame:
+        """Return rows with duplicates removed, keeping the first occurrence.
+
+        Args:
+            *subset: Column name(s) to dedupe on.  If omitted, the entire
+                row is used.
+            sorted: If True, use a streaming O(1)-memory pass that assumes
+                the input is already sorted by *subset*.
+
+        Returns:
+            A new LazyFrame with duplicate rows removed.
+
+        Examples:
+            Dedupe on a subset of columns (first occurrence kept, order preserved):
+
+            >>> lf = LazyFrame([
+            ...     {"region": "EU", "product": "A"},
+            ...     {"region": "US", "product": "B"},
+            ...     {"region": "EU", "product": "C"},
+            ... ])
+            >>> lf.unique("region").to_pylist()
+            [{'region': 'EU', 'product': 'A'}, {'region': 'US', 'product': 'B'}]
+
+            With no arguments, whole rows are compared:
+
+            >>> LazyFrame([{"x": 1}, {"x": 1}, {"x": 2}]).unique().to_pylist()
+            [{'x': 1}, {'x': 2}]
+        """
+        cols = list(subset)
+        available = self.schema.column_names
+        missing = [c for c in cols if c not in available]
+        if missing:
+            raise ValueError(
+                f"unique column(s) {missing} not found. Available columns: {available}"
+            )
+        node = SortedUniqueNode(self._plan, cols) if sorted else UniqueNode(self._plan, cols)
+        return LazyFrame._from_plan(node)
+
     def optimize(self) -> LazyFrame:
         """Return a new LazyFrame with an optimized query plan.
 
@@ -1226,6 +1266,10 @@ class TypedLazyFrame(LazyFrame, Generic[T]):
 
     def head(self, n: int = 5) -> TypedLazyFrame[T]:
         result = super().head(n)
+        return TypedLazyFrame._from_typed(result._plan, self._row_type, result._name)
+
+    def unique(self, *args: Any, **kwargs: Any) -> TypedLazyFrame[T]:
+        result = super().unique(*args, **kwargs)
         return TypedLazyFrame._from_typed(result._plan, self._row_type, result._name)
 
     def __repr__(self) -> str:

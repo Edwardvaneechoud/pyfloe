@@ -53,6 +53,18 @@ ff.sort("region").group_by("region", sorted=True).agg(
 )
 ```
 
+## Deduplicating
+
+```python
+# Hash dedup (default) — keeps the first occurrence, preserves order
+ff.unique("region")              # one row per region
+ff.unique("region", "product")   # one row per (region, product)
+ff.unique()                      # drop fully-duplicate rows
+
+# Sorted streaming dedup — O(1) memory, requires input sorted by the subset
+ff.sort("region").unique("region", sorted=True)
+```
+
 ## Other operations
 
 ```python
