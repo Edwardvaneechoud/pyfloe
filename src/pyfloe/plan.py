@@ -935,6 +935,90 @@ class SortNode(PlanNode):
         return f"Sort [{', '.join(parts)}]"
 
 
+class UniqueNode(PlanNode):
+    """Drops duplicate rows, keeping the first occurrence (hash seen-set).
+
+    Deduplicates on *subset* columns, or on the whole row when *subset*
+    is empty.  Streaming and order-preserving; memory is O(distinct keys).
+
+    Args:
+        child: Input plan node.
+        subset: Column names to dedupe on.  Empty means the whole row.
+    """
+
+    __slots__ = ("child", "subset")
+
+    def __init__(self, child: PlanNode, subset: list[str]):
+        self.child = child
+        self.subset = subset
+
+    def schema(self) -> LazySchema:
+        return self.child.schema()
+
+    def execute_batched(self) -> Iterator[list[tuple]]:
+        col_map = {n: i for i, n in enumerate(self.child.schema().column_names)}
+        seen: set = set()
+        key_fn = _make_key_fn([col_map[c] for c in self.subset]) if self.subset else None
+        for chunk in self.child.execute_batched():
+            out = []
+            for row in chunk:
+                key = key_fn(row) if key_fn else row
+                if key not in seen:
+                    seen.add(key)
+                    out.append(row)
+            if out:
+                yield out
+
+    def children(self) -> list[PlanNode]:
+        return [self.child]
+
+    def _explain_self(self) -> str:
+        cols = ", ".join(self.subset) if self.subset else "*"
+        return f"Unique [{cols}]"
+
+
+class SortedUniqueNode(PlanNode):
+    """Drops duplicate rows from input pre-sorted on *subset* (O(1) memory).
+
+    Emits the first row of each adjacent key-group.  Requires the child to
+    be sorted by *subset* (user-asserted via ``unique(..., sorted=True)``).
+
+    Args:
+        child: Input plan node (must be pre-sorted by *subset*).
+        subset: Column names to dedupe on.  Empty means the whole row.
+    """
+
+    __slots__ = ("child", "subset")
+
+    def __init__(self, child: PlanNode, subset: list[str]):
+        self.child = child
+        self.subset = subset
+
+    def schema(self) -> LazySchema:
+        return self.child.schema()
+
+    def execute_batched(self) -> Iterator[list[tuple]]:
+        parent_cols = self.child.schema().column_names
+        col_map = {n: i for i, n in enumerate(parent_cols)}
+        idx = [col_map[c] for c in self.subset] if self.subset else list(range(len(parent_cols)))
+        key_fn = _make_key_fn(idx)
+        buf: list = []
+        for _key, group_rows in groupby(self.child.execute(), key=key_fn):
+            buf.append(next(group_rows))
+            if len(buf) >= _BATCH_SIZE:
+                yield buf
+                buf = []
+        if buf:
+            yield buf
+
+    def children(self) -> list[PlanNode]:
+        return [self.child]
+
+    def _explain_self(self) -> str:
+        cols = ", ".join(self.subset) if self.subset else "*"
+        return f"SortedUnique [{cols}]"
+
+
 class ExplodeNode(PlanNode):
     """Unnests a list-valued column into separate rows.
 
@@ -1562,6 +1646,8 @@ class Optimizer:
             return LimitNode(self._push_filters(node.child), node.n)
         if isinstance(node, SortNode):
             return SortNode(self._push_filters(node.child), node.by, node.ascending)
+        if isinstance(node, (UniqueNode, SortedUniqueNode)):
+            return type(node)(self._push_filters(node.child), node.subset)
         if isinstance(node, WithColumnNode):
             return WithColumnNode(self._push_filters(node.child), node._name, node._expr)
         if isinstance(node, AggNode):
@@ -1659,6 +1745,14 @@ class Optimizer:
 
         if isinstance(node, LimitNode):
             return LimitNode(self._prune_columns(node.child, needed), node.n)
+
+        if isinstance(node, (UniqueNode, SortedUniqueNode)):
+            if node.subset:
+                child_needed = needed | set(node.subset)
+            else:
+                # Full-row dedup compares every column, so none can be pruned.
+                child_needed = set(node.child.schema().column_names)
+            return type(node)(self._prune_columns(node.child, child_needed), node.subset)
 
         if isinstance(node, FilterNode):
             filter_needs = node.predicate.required_columns()

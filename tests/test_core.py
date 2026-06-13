@@ -604,6 +604,67 @@ def test_head():
     assert len(result) == 3
 
 
+def test_unique_subset_keeps_first_and_order():
+    result = LazyFrame(ORDERS).unique("region").to_pylist()
+    # First occurrence per region, in input order: EU (order 1), US (order 2)
+    assert [r["region"] for r in result] == ["EU", "US"]
+    assert [r["order_id"] for r in result] == [1, 2]
+
+
+def test_unique_full_row():
+    data = [{"x": 1, "y": "a"}, {"x": 1, "y": "a"}, {"x": 1, "y": "b"}, {"x": 2, "y": "a"}]
+    result = LazyFrame(data).unique().to_pylist()
+    assert result == [{"x": 1, "y": "a"}, {"x": 1, "y": "b"}, {"x": 2, "y": "a"}]
+
+
+def test_unique_multi_column_subset():
+    result = LazyFrame(ORDERS).unique("region", "product").to_pylist()
+    keys = [(r["region"], r["product"]) for r in result]
+    assert keys == [
+        ("EU", "Widget A"),
+        ("US", "Widget B"),
+        ("EU", "Widget C"),
+        ("US", "Widget A"),
+        ("EU", "Widget B"),
+        ("US", "Widget C"),
+    ]
+
+
+def test_unique_sorted_fast_path_matches_hash():
+    pre_sorted = LazyFrame(ORDERS).sort("region")
+    sorted_result = pre_sorted.unique("region", sorted=True).to_pylist()
+    hash_result = pre_sorted.unique("region").to_pylist()
+    assert sorted_result == hash_result
+    assert {r["region"] for r in sorted_result} == {"EU", "US"}
+
+
+def test_unique_unknown_column_raises():
+    import pytest
+
+    with pytest.raises(ValueError, match=r"unique column\(s\)"):
+        LazyFrame(ORDERS).unique("nope")
+
+
+def test_unique_filter_not_pushed_through():
+    # A filter above unique must not be reordered below it: deduping first then
+    # filtering can differ from filtering first then deduping. (raw to_pylist runs
+    # the unoptimized plan; .optimize() runs the optimized one.)
+    def build():
+        return LazyFrame(ORDERS).unique("region").filter(col("amount") > 100)
+
+    assert build().to_pylist() == build().optimize().to_pylist() == [
+        {"order_id": 1, "customer_id": 101, "product": "Widget A", "amount": 250.0, "region": "EU"}
+    ]
+
+
+def test_unique_column_pruning_roundtrip():
+    def build():
+        return LazyFrame(ORDERS).unique("region").select("region")
+
+    expected = [{"region": "EU"}, {"region": "US"}]
+    assert build().to_pylist() == build().optimize().to_pylist() == expected
+
+
 def test_getitem_string_select():
     lf = LazyFrame(ORDERS)["amount"]
     assert lf.columns == ["amount"]
